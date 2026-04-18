@@ -1,11 +1,14 @@
 import OpenAI from "openai";
+import { MalformedLLMJsonError } from "@/types";
+import { withCache } from "@/lib/cache";
 
 /**
  * OpenAI provider wrapper.
  *
- * Responsibility: chat-completion calls only. The auditor JSON wrapper
- * (`openaiJson`) lives here too once task 1.3 adds it — both share a single
- * client instance to keep connection pooling clean.
+ * Two responsibilities, both thin:
+ *   - `openaiChat`: free-form chat-completion (used by /api/chat).
+ *   - `openaiJson`: structured JSON-mode call returning a typed object (used
+ *     by every auditor path — extractor, verifier subagents, dehallucinator).
  *
  * Per CLAUDE.md, this module must NOT contain extractor / verifier / aggregator
  * logic. It only knows how to talk to OpenAI.
@@ -50,4 +53,65 @@ export async function openaiChat(
     throw new Error("OpenAI returned an empty response.");
   }
   return text;
+}
+
+/**
+ * Structured-JSON call. Forces `response_format: { type: "json_object" }` and
+ * parses the result into `T`. Throws `MalformedLLMJsonError` on a parse
+ * failure — never silently defaults (CLAUDE.md rule 4).
+ *
+ * The caller is responsible for runtime-validating the shape of `T`; this
+ * wrapper only guarantees `JSON.parse` succeeded.
+ *
+ * The exported `openaiJson` is cached in dev (no-op in prod). Use
+ * `openaiJsonUncached` if you specifically need to bypass the cache.
+ */
+export async function openaiJsonUncached<T>(
+  systemPrompt: string,
+  userPrompt: string,
+  model: "gpt-4o-mini" = "gpt-4o-mini",
+): Promise<T> {
+  const completion = await client().chat.completions.create({
+    model,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  });
+
+  const raw = completion.choices[0]?.message?.content ?? "";
+  if (!raw) {
+    throw new MalformedLLMJsonError(
+      "OpenAI JSON call returned an empty response.",
+      raw,
+    );
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "unknown parse error";
+    throw new MalformedLLMJsonError(
+      `OpenAI JSON call returned invalid JSON: ${reason}`,
+      raw,
+    );
+  }
+}
+
+// Cache layer. Generic <T> is preserved at the call site by casting the
+// cached unknown back to T — withCache stores plain JSON so the round-trip
+// is structurally safe (the underlying call already ran the same JSON.parse).
+const _openaiJsonCached = withCache(
+  "openai-json",
+  (systemPrompt: string, userPrompt: string, model: "gpt-4o-mini") =>
+    openaiJsonUncached<unknown>(systemPrompt, userPrompt, model),
+);
+
+export async function openaiJson<T>(
+  systemPrompt: string,
+  userPrompt: string,
+  model: "gpt-4o-mini" = "gpt-4o-mini",
+): Promise<T> {
+  return (await _openaiJsonCached(systemPrompt, userPrompt, model)) as T;
 }

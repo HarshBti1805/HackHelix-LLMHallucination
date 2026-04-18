@@ -47,13 +47,13 @@ Goal: prove you can extract structured claims and find evidence for them. No UI 
 
 | # | Task | Status |
 |---|---|---|
-| 1.1 | Create `lib/search.ts` — wrap Tavily's `/search` endpoint. Expose `search(query, { domains? })`. | ☐ |
-| 1.2 | Smoke-test `search` from a scratch script (`npx tsx scratch.ts`). Print results for "Eiffel Tower height". | ☐ |
-| 1.3 | Create `lib/extract.ts` — one OpenAI call, JSON mode, returns `Claim[]`. Prompt lives in this file as `EXTRACTOR_PROMPT`. | ☐ |
-| 1.4 | Smoke-test extraction on a paragraph with obvious claims. Expect 3–6 atomic claims back. | ☐ |
-| 1.5 | Tighten the extractor prompt until it filters out opinions and predictions cleanly. | ☐ |
-| 1.6 | Create `lib/cache.ts` — file-based cache keyed by SHA of input. Wrap both `search` and LLM calls. | ☐ |
-| 1.7 | **Commit: "extract + search working in isolation"** | ☐ |
+| 1.1 | Create `lib/search.ts` — wrap Tavily's `/search` endpoint. Expose `search(query, { domains? })`. | ✅ Bearer-auth Tavily wrapper, maps results → `EvidenceSource`, supports `includeDomains`/`maxResults`/`searchDepth`. |
+| 1.2 | Smoke-test `search` from a scratch script (`npx tsx scratch.ts`). Print results for "Eiffel Tower height". | ✅ `scripts/smoke-search.ts` returned 5 results from wikipedia/britannica/toureiffel.paris. |
+| 1.3 | Create `lib/extract.ts` — one OpenAI call, JSON mode, returns `Claim[]`. Prompt lives in this file as `EXTRACTOR_PROMPT`. | ✅ Added `openaiJson<T>` wrapper (throws `MalformedLLMJsonError`). Prompt lives in `lib/prompts/extractor.ts` per ARCHITECTURE.md §2 (overrides plan's "in this file" wording). `extract.ts` validates types and ids. |
+| 1.4 | Smoke-test extraction on a paragraph with obvious claims. Expect 3–6 atomic claims back. | ✅ `scripts/smoke-extract.ts`: 6 atomic claims (2 numerical, 3 entity, 1 citation) with correct entities. |
+| 1.5 | Tighten the extractor prompt until it filters out opinions and predictions cleanly. | ✅ v1 prompt already filters opinion ("most beautiful city"), prediction ("By 2050…"), and definition ("algorithm is…") on first run. |
+| 1.6 | Create `lib/cache.ts` — file-based cache keyed by SHA of input. Wrap both `search` and LLM calls. | ✅ `withCache(namespace, fn)` writes to `<tmpdir>/halluc-cache/<ns>/<sha>.json`, no-op in production. Wrapped `search` (4.2s→0.32s) and `openaiJson` (15.1s→0.36s). |
+| 1.7 | **Commit: "extract + search working in isolation"** | ✅ |
 
 **Exit criterion:** from a scratch script, you can pass in a paragraph, get back a list of `Claim` objects, and for each claim get 3–5 Tavily search results.
 
