@@ -23,30 +23,28 @@ import { failedClaimCount } from "@/components/audit/verdict";
  */
 
 /**
- * Providers actually wired into this chat switcher.
+ * Providers wired into the chat switcher.
  *
- * The public `Provider` union in `types.ts` includes `"anthropic"` ahead of
- * its runtime wiring (IMPROVEMENTS.md task A.1 added the type, Phase B tasks
- * B.1–B.4 add the SDK adapter, the chat-route case, and finally the UI
- * option here). Until then the UI only knows about OpenAI and Gemini, so
- * `WiredProvider` narrows to those two and `Record<WiredProvider, …>` keeps
- * the model/label maps exhaustive without forcing us to ship a placeholder
- * Anthropic entry that would render as a broken option.
+ * All three entries in the `Provider` union are runtime-supported as of
+ * IMPROVEMENTS.md Phase B (B.1–B.4 added the Anthropic SDK adapter, the
+ * chat-route case, and finally this UI option). The earlier `Provider`
+ * narrowing alias was removed once Anthropic landed — the maps below are now
+ * exhaustive against the public `Provider` union, so the compiler will fail
+ * loudly if a future provider is added to `types.ts` without a switcher entry.
  *
- * When task B.4 lands, widen this alias to `Provider` (or just delete it),
- * add the Anthropic entries to both records, and the rest of the switcher
- * picks them up automatically.
+ * Single-model providers (Gemini, Anthropic) collapse the model `<select>`
+ * to a static label downstream — no purposeless one-item dropdown.
  */
-type WiredProvider = Extract<Provider, "openai" | "gemini">;
-
-const PROVIDER_MODELS: Record<WiredProvider, ChatModel[]> = {
+const PROVIDER_MODELS: Record<Provider, ChatModel[]> = {
   openai: ["gpt-4o", "gpt-4o-mini"],
   gemini: ["gemini-2.5-flash"],
+  anthropic: ["claude-haiku-4-5"],
 };
 
-const PROVIDER_LABEL: Record<WiredProvider, string> = {
+const PROVIDER_LABEL: Record<Provider, string> = {
   openai: "OpenAI",
   gemini: "Gemini",
+  anthropic: "Anthropic",
 };
 
 type Theme = "light" | "dark";
@@ -775,7 +773,7 @@ export default function Home() {
     }
   }
 
-  function changeProvider(next: WiredProvider) {
+  function changeProvider(next: Provider) {
     setProvider(next);
     setModel(PROVIDER_MODELS[next][0]);
   }
@@ -1099,25 +1097,25 @@ export default function Home() {
           <div className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-1 py-1 text-xs sm:flex">
             <select
               value={provider}
-              onChange={(e) => changeProvider(e.target.value as WiredProvider)}
+              onChange={(e) => changeProvider(e.target.value as Provider)}
               className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
               aria-label="Provider"
             >
-              {(Object.keys(PROVIDER_MODELS) as WiredProvider[]).map((p) => (
+              {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
                 <option key={p} value={p} className="bg-[var(--surface)]">
                   {PROVIDER_LABEL[p]}
                 </option>
               ))}
             </select>
             <span className="text-[var(--foreground-muted)]">/</span>
-            {PROVIDER_MODELS[provider as WiredProvider].length > 1 ? (
+            {PROVIDER_MODELS[provider].length > 1 ? (
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value as ChatModel)}
                 className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
                 aria-label="Model"
               >
-                {PROVIDER_MODELS[provider as WiredProvider].map((m) => (
+                {PROVIDER_MODELS[provider].map((m) => (
                   <option key={m} value={m} className="bg-[var(--surface)]">
                     {m}
                   </option>
@@ -1128,7 +1126,7 @@ export default function Home() {
                 className="rounded-full px-2 py-1 text-xs text-[var(--foreground-muted)]"
                 aria-label="Model"
               >
-                {PROVIDER_MODELS[provider as WiredProvider][0]}
+                {PROVIDER_MODELS[provider][0]}
               </span>
             )}
           </div>
@@ -1153,24 +1151,24 @@ export default function Home() {
       <div className="flex items-center justify-center gap-1 border-b border-[var(--border)] bg-background px-4 py-2 sm:hidden">
         <select
           value={provider}
-          onChange={(e) => changeProvider(e.target.value as WiredProvider)}
+          onChange={(e) => changeProvider(e.target.value as Provider)}
           className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
           aria-label="Provider"
         >
-          {(Object.keys(PROVIDER_MODELS) as WiredProvider[]).map((p) => (
+          {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
             <option key={p} value={p}>
               {PROVIDER_LABEL[p]}
             </option>
           ))}
         </select>
-        {PROVIDER_MODELS[provider as WiredProvider].length > 1 ? (
+        {PROVIDER_MODELS[provider].length > 1 ? (
           <select
             value={model}
             onChange={(e) => setModel(e.target.value as ChatModel)}
             className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
             aria-label="Model"
           >
-            {PROVIDER_MODELS[provider as WiredProvider].map((m) => (
+            {PROVIDER_MODELS[provider].map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
@@ -1181,7 +1179,7 @@ export default function Home() {
             className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--foreground-muted)]"
             aria-label="Model"
           >
-            {PROVIDER_MODELS[provider as WiredProvider][0]}
+            {PROVIDER_MODELS[provider][0]}
           </span>
         )}
       </div>

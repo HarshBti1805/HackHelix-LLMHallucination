@@ -14,7 +14,7 @@ Three distinct LLM responsibilities:
 
 | Responsibility | Provider | Model | Output |
 |---|---|---|---|
-| **Chat** (the model being audited) | OpenAI *or* Gemini (user-selectable) | `gpt-4o` / `gemini-2.5-flash` | Free-form text |
+| **Chat** (the model being audited) | OpenAI *or* Anthropic *or* Gemini (user-selectable) | `gpt-4o` / `claude-haiku-4-5` / `gemini-2.5-flash` | Free-form text |
 | **Claim extraction** | OpenAI (fixed) | `gpt-4o-mini` | JSON (`Claim[]`) |
 | **Claim verification** (3 subagents) | OpenAI (fixed) | `gpt-4o-mini` | JSON (`AgentReport`) |
 | **Dehallucinate prompt builder** | OpenAI (fixed) | `gpt-4o-mini` | JSON (`{ suggested_prompt }`) |
@@ -33,7 +33,7 @@ hallucination-audit/
 │   ├── globals.css
 │   └── api/
 │       ├── chat/
-│       │   └── route.ts            # POST: dispatch to OpenAI or Gemini
+│       │   └── route.ts            # POST: dispatch to OpenAI, Anthropic, or Gemini
 │       ├── audit/
 │       │   └── route.ts            # POST: extract → verify (parallel) → aggregate
 │       └── dehallucinate/
@@ -41,6 +41,7 @@ hallucination-audit/
 ├── lib/
 │   ├── providers/
 │   │   ├── openai.ts               # chat wrapper + shared client
+│   │   ├── anthropic.ts            # chat wrapper (Claude Haiku 4.5)
 │   │   └── gemini.ts               # chat wrapper
 │   ├── extract.ts                  # claim extraction
 │   ├── agents.ts                   # 3 subagent roles + parallel runner
@@ -80,11 +81,12 @@ hallucination-audit/
 ```ts
 // types.ts
 
-export type Provider = "openai" | "gemini";
+export type Provider = "openai" | "anthropic" | "gemini";
 
 export type ChatModel =
   | "gpt-4o"
   | "gpt-4o-mini"
+  | "claude-haiku-4-5"
   | "gemini-2.5-flash";
 
 export interface ChatMessage {
@@ -174,8 +176,9 @@ export interface MessageAudit {
 │ SERVER /api/chat/route.ts                                       │
 │                                                                 │
 │  switch (provider):                                             │
-│    openai → lib/providers/openai.ts  → OpenAI API               │
-│    gemini → lib/providers/gemini.ts  → Google GenAI API         │
+│    openai    → lib/providers/openai.ts    → OpenAI API          │
+│    anthropic → lib/providers/anthropic.ts → Anthropic API       │
+│    gemini    → lib/providers/gemini.ts    → Google GenAI API    │
 │                                                                 │
 │  returns: { message: ChatMessage }                              │
 └────────────────┬────────────────────────────────────────────────┘
@@ -272,6 +275,25 @@ Gemini-specific notes:
 - Gemini's SDK separates system instructions from messages; if needed, extract and pass via `systemInstruction`.
 - Only exposes chat. No JSON-mode variant — Gemini is never used by the auditor.
 - Single supported model: `gemini-2.5-flash`. Pro is intentionally excluded — it is paid-tier only on the consumer Gemini API (free-tier quota = 0), which would silently break the chat UI's first click and the Phase B eval harness's Gemini column. Flash works on the free tier and shares the SDK shape, so the wrapper does not need conditional logic. See `IMPROVEMENTS.md` Phase 0 for the decision and `README.md` "Known limitations" for the user-facing parity caveat.
+
+### 5.2a `lib/providers/anthropic.ts`
+
+Exports:
+
+```ts
+export async function anthropicChat(
+  messages: { role: "system" | "user" | "assistant"; content: string }[],
+  model: "claude-haiku-4-5",
+): Promise<string>;
+```
+
+Anthropic-specific notes:
+- Anthropic's Messages API requires `max_tokens` on every call (no default). Wrapper hardcodes `4096`.
+- System messages are not part of the conversation array; the wrapper extracts any `role: "system"` turns and concatenates them into the top-level `system` parameter.
+- Native `user` / `assistant` roles, no role normalization needed.
+- Response `content` is a `ContentBlock[]`; the wrapper filters `type === "text"` blocks and concatenates them into a single string.
+- Only exposes chat. No JSON-mode variant — Anthropic is never used by the auditor.
+- Single supported model: `claude-haiku-4-5` (rolling alias). Sonnet and earlier Haiku snapshots are intentionally excluded — efficient-tier parity with Gemini Flash, lowest per-token cost for the eval harness's hundreds of upstream calls. See `IMPROVEMENTS.md` Phase B and the comment in `types.ts` for the decision rationale.
 
 ### 5.3 `lib/search.ts`
 
@@ -387,8 +409,8 @@ Request:
 ```json
 {
   "messages": [{ "role": "user", "content": "..." }],
-  "provider": "openai" | "gemini",
-  "model": "gpt-4o" | "gpt-4o-mini" | "gemini-2.5-flash"
+  "provider": "openai" | "anthropic" | "gemini",
+  "model": "gpt-4o" | "gpt-4o-mini" | "claude-haiku-4-5" | "gemini-2.5-flash"
 }
 ```
 

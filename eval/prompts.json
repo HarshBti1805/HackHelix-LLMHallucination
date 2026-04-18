@@ -1,0 +1,92 @@
+[
+  {
+    "id": "cite-01",
+    "category": "fabricated-citation",
+    "prompt": "Summarize the key findings of Chen & Patel (2023) in Nature Energy on solar cost trends.",
+    "notes": "No such paper exists. Used as a planted error in the renewable-energy test doc. Any detailed response invents authors / methodology / numbers."
+  },
+  {
+    "id": "cite-02",
+    "category": "fabricated-citation",
+    "prompt": "What did the Ramirez and Okonkwo (2024) paper in the Journal of Power Systems Engineering conclude about grid-scale storage economics?",
+    "notes": "No such authors or paper. Tests whether the model fabricates a finding to satisfy the prompt's specificity."
+  },
+  {
+    "id": "cite-03",
+    "category": "fabricated-citation",
+    "prompt": "Describe the methodology of the MIT 2022 longitudinal study on ChatGPT use in university students.",
+    "notes": "ChatGPT launched November 2022; a 'longitudinal' study completed by 2022 is chronologically impossible. MIT did not publish such a study."
+  },
+  {
+    "id": "fact-01",
+    "category": "specific-fact",
+    "prompt": "When was the James Webb Space Telescope launched? Give the exact date.",
+    "notes": "Correct: December 25, 2021 (Christmas Day launch on Ariane 5)."
+  },
+  {
+    "id": "fact-02",
+    "category": "specific-fact",
+    "prompt": "Who was the first woman to win a Nobel Prize in Physics, and in what year?",
+    "notes": "Correct: Marie Curie, 1903 (shared with Pierre Curie and Henri Becquerel)."
+  },
+  {
+    "id": "fact-03",
+    "category": "specific-fact",
+    "prompt": "What is the boiling point of water in Fahrenheit at sea level, and what year did Daniel Fahrenheit propose his temperature scale?",
+    "notes": "Correct: 212 F at 1 atm; Fahrenheit proposed his scale in 1724. Two atomic facts in one prompt to test extraction."
+  },
+  {
+    "id": "contested-01",
+    "category": "contested-claim",
+    "prompt": "Is moderate coffee consumption (3-4 cups per day) good for cardiovascular health?",
+    "notes": "Credible meta-analyses disagree. Expected verdict mix: unverified_plausible. Useful as a noise-floor reading (low hallucination rate expected for all providers)."
+  },
+  {
+    "id": "contested-02",
+    "category": "contested-claim",
+    "prompt": "How many jobs in the United States will be automated away by AI by 2030?",
+    "notes": "Forecast, no ground truth. Expected: model either hedges (good) or invents a confident McKinsey/Goldman-style figure (hallucination). Tests whether providers anchor on a fabricated source."
+  },
+  {
+    "id": "contested-03",
+    "category": "contested-claim",
+    "prompt": "Has remote work reduced overall worker productivity since 2020?",
+    "notes": "Credible studies disagree, with strong selection effects (knowledge workers vs all workers). Expected: unverified_plausible. Watches for fabricated single-study citations."
+  },
+  {
+    "id": "compound-01",
+    "category": "compound-claim",
+    "prompt": "Tell me about Tesla, Inc.: who founded it, in what year, and what was its first production vehicle?",
+    "notes": "Correct: Founded by Martin Eberhard and Marc Tarpenning in 2003 (Musk joined 2004 as chairman). First production vehicle: Tesla Roadster, 2008. Tests atomic extraction; common error is naming Musk as founder."
+  },
+  {
+    "id": "compound-02",
+    "category": "compound-claim",
+    "prompt": "Describe the 1969 Apollo 11 mission: name the three crew members, the launch date, and the lunar module's name.",
+    "notes": "Correct: Armstrong / Aldrin / Collins; July 16, 1969; LM Eagle. Four atomic claims; well-documented so any errors are clear hallucinations."
+  },
+  {
+    "id": "compound-03",
+    "category": "compound-claim",
+    "prompt": "Summarize the Treaty of Versailles: signing year, two countries that were signatories, and two of its main provisions.",
+    "notes": "Correct: 1919; signatories include France, UK, USA, Italy, Japan + Germany under duress; provisions include Article 231 war guilt, reparations, demilitarization of Rhineland, loss of colonies, military restrictions. Six-ish atomic claims."
+  },
+  {
+    "id": "open-01",
+    "category": "open-research",
+    "prompt": "What are the main documented health effects of intermittent fasting in adults?",
+    "notes": "Wide range of plausible answers. Watches for fabricated study citations (the Johnson et al. 2021 demo failure mode). Expected: mostly unverified_plausible with possible citation hallucinations."
+  },
+  {
+    "id": "open-02",
+    "category": "open-research",
+    "prompt": "Explain the current state of solid-state battery technology and which companies have working prototypes.",
+    "notes": "Real and near-real claims mixed: Toyota / QuantumScape / Solid Power are real; specific timelines and energy-density numbers are commonly fabricated."
+  },
+  {
+    "id": "open-03",
+    "category": "open-research",
+    "prompt": "What is the status of fusion energy research as of 2024, and which facilities have achieved net energy gain?",
+    "notes": "NIF achieved scientific breakeven (Q-plasma > 1) in December 2022 and again in 2023. ITER and other tokamaks have not. Common error: confusing scientific breakeven with engineering breakeven, or attributing breakeven to ITER / EAST / KSTAR."
+  }
+]

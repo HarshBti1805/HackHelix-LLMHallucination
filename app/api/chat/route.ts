@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openaiChat, type OpenAIChatModel } from "@/lib/providers/openai";
 import { geminiChat, type GeminiChatModel } from "@/lib/providers/gemini";
+import {
+  anthropicChat,
+  type AnthropicChatModel,
+} from "@/lib/providers/anthropic";
 import type {
   ChatMessage,
   ChatRequestBody,
@@ -19,7 +23,7 @@ import type {
 export const runtime = "nodejs";
 
 function isValidProvider(p: unknown): p is Provider {
-  return p === "openai" || p === "gemini";
+  return p === "openai" || p === "gemini" || p === "anthropic";
 }
 
 export async function POST(req: NextRequest) {
@@ -56,10 +60,16 @@ export async function POST(req: NextRequest) {
 
   try {
     let content: string;
-    if (provider === "openai") {
-      content = await openaiChat(messages, model as OpenAIChatModel);
-    } else {
-      content = await geminiChat(messages, model as GeminiChatModel);
+    switch (provider) {
+      case "openai":
+        content = await openaiChat(messages, model as OpenAIChatModel);
+        break;
+      case "gemini":
+        content = await geminiChat(messages, model as GeminiChatModel);
+        break;
+      case "anthropic":
+        content = await anthropicChat(messages, model as AnthropicChatModel);
+        break;
     }
 
     const message: ChatMessage = {

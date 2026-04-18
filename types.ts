@@ -13,18 +13,30 @@ export type ChatModel =
   | "gpt-4o"
   | "gpt-4o-mini"
   | "gemini-2.5-flash"
-  | "claude-3-5-sonnet-latest"
-  | "claude-3-5-haiku-latest";
+  | "claude-haiku-4-5";
 
 /**
- * NB: `"anthropic"` and the two `claude-3-5-*` entries above are added in
- * IMPROVEMENTS.md Phase A task A.1 as PURE TYPE EXTENSIONS, sitting unused
- * by the runtime. The chat UI switcher (`PROVIDER_MODELS` in `app/page.tsx`),
- * the chat dispatcher (`app/api/chat/route.ts`), and the provider wrapper
- * (`lib/providers/anthropic.ts`) are all wired up later in Phase B
- * (tasks B.1–B.4). Keeping the type changes ahead of the wiring lets the
- * compiler validate the union shape early and avoids a noisy second commit
- * touching `types.ts` again at the start of Phase B.
+ * Anthropic chat-model entry rationale (IMPROVEMENTS.md Phase B prep):
+ *
+ * Single Claude entry on purpose. The earlier `claude-3-5-sonnet-latest` and
+ * `claude-3-5-haiku-latest` placeholders (added during Phase A as type-only
+ * stubs) are gone. `claude-haiku-4-5` is the rolling alias for Claude Haiku
+ * 4.5 — the current efficient-tier model from Anthropic's overview docs.
+ *
+ * Why Haiku and not Sonnet:
+ *   - Mirrors the Gemini Flash decision (Phase 0). Single efficient-tier
+ *     model per non-OpenAI provider keeps the eval comparison internally
+ *     consistent.
+ *   - The eval harness (Phase B.7) issues hundreds of upstream calls — Haiku
+ *     gives the most generous rate limits and lowest per-token cost.
+ *   - Anthropic has no perpetual free API tier, so cost discipline matters
+ *     here even more than for Gemini.
+ *
+ * Why the rolling alias and not the dated snapshot
+ * (`claude-haiku-4-5-20251001`): consistency with `gpt-4o` and
+ * `gemini-2.5-flash`, which are also rolling. The eval is a one-shot run, so
+ * snapshot-pinning for reproducibility isn't a concern. Do not re-add Sonnet
+ * or older Haiku entries behind a config flag — single code path on purpose.
  */
 
 export interface ChatMessage {
