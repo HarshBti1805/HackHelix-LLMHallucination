@@ -34,6 +34,46 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 
 type Theme = "light" | "dark";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Demo prompts (PROJECT_PLAN.md task 5.1)
+//
+// Three canonical prompts that exercise the three "interesting" audit
+// outcomes. These are surfaced as compact chips above the composer; clicking
+// a chip pastes the prompt into the input but does NOT auto-send, so the
+// presenter can pause on the talking point before pressing Enter.
+//
+// Prompts are chosen empirically from earlier shot-2/shot-3 testing:
+//   - Citation hallucination: Johnson et al. 2021 — gpt-4o reliably
+//     fabricates the study + author list, surfaces as
+//     `likely_hallucination` with low evidence.
+//   - Contested claim:        Tesla milestones — gpt-4o gets some details
+//     right and some wrong, producing per-claim `agents_disagreed` flags
+//     across all three subagents (cleaner than Great Wall length, which
+//     tends to either fully verify or fully contradict).
+//   - Benign truth:           Eiffel Tower height — single numerical
+//     claim, verifies cleanly with no Regenerate button.
+// ─────────────────────────────────────────────────────────────────────────────
+interface DemoPrompt {
+  label: string;
+  prompt: string;
+}
+const DEMO_PROMPTS: DemoPrompt[] = [
+  {
+    label: "Citation hallucination",
+    prompt:
+      "Summarize the findings of Johnson et al. 2021 on intermittent fasting.",
+  },
+  {
+    label: "Contested claim",
+    prompt:
+      "Tell me three specific, dated milestones in the history of Tesla, Inc., including the names of the people involved and the cities where the events took place.",
+  },
+  {
+    label: "Benign truth",
+    prompt: "How tall is the Eiffel Tower in metres, including its antenna?",
+  },
+];
+
 function makeUserMessage(content: string): ChatMessage {
   return {
     id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1103,6 +1143,18 @@ export default function Home() {
     await sendUserMessage(text);
   }
 
+  /**
+   * Demo-chip handler (PROJECT_PLAN.md task 5.1). Pastes the prompt into
+   * the composer and focuses the textarea so the presenter can review or
+   * edit before pressing Enter — explicitly does NOT auto-send.
+   */
+  function loadDemoPrompt(prompt: string) {
+    setInput(prompt);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     void sendMessage(input);
@@ -1325,6 +1377,31 @@ export default function Home() {
           onSubmit={handleSubmit}
           className="mx-auto w-full max-w-3xl"
         >
+          {/*
+            Demo-prompt chips (PROJECT_PLAN.md task 5.1).
+            Paste into the input but DO NOT auto-send — the user presses
+            Send themselves so the demo flow looks natural and they have
+            a beat to set up the talking point. Visually secondary by
+            design: small, muted, sits above the composer, never the
+            dominant element.
+          */}
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+              Demo:
+            </span>
+            {DEMO_PROMPTS.map((demo) => (
+              <button
+                key={demo.label}
+                type="button"
+                onClick={() => loadDemoPrompt(demo.prompt)}
+                disabled={pending}
+                title={demo.prompt}
+                className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {demo.label}
+              </button>
+            ))}
+          </div>
           <div className="group relative flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-sm transition focus-within:border-[var(--accent)]/50 focus-within:shadow-md">
             <textarea
               ref={textareaRef}
