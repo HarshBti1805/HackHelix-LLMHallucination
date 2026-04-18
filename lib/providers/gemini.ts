@@ -7,6 +7,14 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
  * auditor — keeping the auditor fixed to OpenAI is what makes the chat-model
  * comparison meaningful (CLAUDE.md core rule 2).
  *
+ * Single supported model: `gemini-2.5-flash`. Pro is intentionally excluded
+ * (IMPROVEMENTS.md Phase 0 decision): on the consumer Gemini API, Pro is
+ * paid-tier only (free-tier quota = 0), which makes it a footgun for the
+ * three-provider eval harness in IMPROVEMENTS.md Phase B and a 500-on-first-
+ * click hazard in the chat UI. Flash is on the free tier, has the same SDK
+ * shape, and is the model the eval comparison runs against. Do not re-add
+ * Pro behind a config flag — single code path on purpose.
+ *
  * Gemini quirks handled here so the rest of the codebase doesn't have to care:
  *   - Gemini uses `"model"` for the assistant role; we accept `"assistant"` and
  *     normalize.
@@ -28,7 +36,7 @@ function client(): GoogleGenerativeAI {
   return _client;
 }
 
-export type GeminiChatModel = "gemini-1.5-pro" | "gemini-1.5-flash";
+export type GeminiChatModel = "gemini-2.5-flash";
 
 export interface GeminiChatTurn {
   role: "system" | "user" | "assistant";
@@ -37,7 +45,7 @@ export interface GeminiChatTurn {
 
 export async function geminiChat(
   messages: GeminiChatTurn[],
-  model: GeminiChatModel = "gemini-1.5-pro",
+  model: GeminiChatModel = "gemini-2.5-flash",
 ): Promise<string> {
   const systemTurns = messages.filter((m) => m.role === "system");
   const conversation = messages.filter((m) => m.role !== "system");

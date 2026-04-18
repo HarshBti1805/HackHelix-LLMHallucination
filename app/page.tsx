@@ -24,7 +24,7 @@ import type {
 
 const PROVIDER_MODELS: Record<Provider, ChatModel[]> = {
   openai: ["gpt-4o", "gpt-4o-mini"],
-  gemini: ["gemini-1.5-pro", "gemini-1.5-flash"],
+  gemini: ["gemini-2.5-flash"],
 };
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -815,6 +815,143 @@ function SendIcon({ className = "" }: { className?: string }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MarkdownLite
+//
+// Some chat models (notably gpt-4o on the "Tesla milestones" demo prompt)
+// emit markdown — `**bold**`, `### headings`, `- ` bullets — while others
+// return plain prose. Rendering raw text with `whitespace-pre-wrap` leaks the
+// asterisks/hashes into the UI. This is a deliberately small renderer (no
+// dependency) that handles the few constructs the chat models actually use:
+//   inline:  **bold**, *italic* / _italic_, `code`
+//   block:   ATX headings (#..######), unordered (-, *, •) and ordered lists,
+//            paragraphs separated by blank lines
+// Anything else falls through as text. We do NOT render raw HTML, so this
+// is safe to feed arbitrary model output.
+// ─────────────────────────────────────────────────────────────────────────────
+function renderInline(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  // Order matters: code first (so backticked content is opaque to other
+  // rules), then bold (greedy on `**`), then italic. The lookarounds keep
+  // single-`*` italic from eating one star of a `**bold**` pair.
+  const re =
+    /(`+)([^`]+?)\1|\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|(?<!\*)\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)|(?<!_)_(?!\s)([^_\n]+?)(?<!\s)_(?!_)/g;
+  let lastIndex = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > lastIndex) out.push(text.slice(lastIndex, m.index));
+    if (m[2] !== undefined) {
+      out.push(
+        <code
+          key={key++}
+          className="rounded bg-[var(--surface-muted)] px-1 py-0.5 font-mono text-[0.9em]"
+        >
+          {m[2]}
+        </code>
+      );
+    } else if (m[3] !== undefined || m[4] !== undefined) {
+      out.push(
+        <strong key={key++} className="font-semibold">
+          {m[3] ?? m[4]}
+        </strong>
+      );
+    } else if (m[5] !== undefined || m[6] !== undefined) {
+      out.push(<em key={key++}>{m[5] ?? m[6]}</em>);
+    }
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) out.push(text.slice(lastIndex));
+  return out;
+}
+
+function MarkdownLite({ text }: { text: string }) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: React.ReactNode[] = [];
+  const listRe = /^\s*([-*•]|\d+\.)\s+(.*)$/;
+  const headingRe = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    const heading = headingRe.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const cls =
+        level <= 2
+          ? "mt-4 mb-2 text-base font-semibold first:mt-0"
+          : level === 3
+            ? "mt-3 mb-1.5 text-[15px] font-semibold first:mt-0"
+            : "mt-2 mb-1 text-sm font-semibold first:mt-0";
+      blocks.push(
+        <div key={key++} className={cls}>
+          {renderInline(heading[2])}
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    if (listRe.test(line)) {
+      const ordered = /^\s*\d+\./.test(line);
+      const items: string[] = [];
+      while (i < lines.length && listRe.test(lines[i])) {
+        const lm = listRe.exec(lines[i])!;
+        items.push(lm[2]);
+        i++;
+      }
+      const liNodes = items.map((it, idx) => (
+        <li key={idx}>{renderInline(it)}</li>
+      ));
+      blocks.push(
+        ordered ? (
+          <ol
+            key={key++}
+            className="my-2 ml-5 list-decimal space-y-1 first:mt-0 last:mb-0"
+          >
+            {liNodes}
+          </ol>
+        ) : (
+          <ul
+            key={key++}
+            className="my-2 ml-5 list-disc space-y-1 first:mt-0 last:mb-0"
+          >
+            {liNodes}
+          </ul>
+        )
+      );
+      continue;
+    }
+
+    const paraLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !headingRe.test(lines[i]) &&
+      !listRe.test(lines[i])
+    ) {
+      paraLines.push(lines[i]);
+      i++;
+    }
+    blocks.push(
+      <p
+        key={key++}
+        className="my-2 whitespace-pre-wrap break-words first:mt-0 last:mb-0"
+      >
+        {renderInline(paraLines.join("\n"))}
+      </p>
+    );
+  }
+
+  return <>{blocks}</>;
+}
+
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("light");
   const [provider, setProvider] = useState<Provider>("openai");
@@ -1202,18 +1339,27 @@ export default function Home() {
               ))}
             </select>
             <span className="text-[var(--foreground-muted)]">/</span>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value as ChatModel)}
-              className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
-              aria-label="Model"
-            >
-              {PROVIDER_MODELS[provider].map((m) => (
-                <option key={m} value={m} className="bg-[var(--surface)]">
-                  {m}
-                </option>
-              ))}
-            </select>
+            {PROVIDER_MODELS[provider].length > 1 ? (
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value as ChatModel)}
+                className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
+                aria-label="Model"
+              >
+                {PROVIDER_MODELS[provider].map((m) => (
+                  <option key={m} value={m} className="bg-[var(--surface)]">
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span
+                className="rounded-full px-2 py-1 text-xs text-[var(--foreground-muted)]"
+                aria-label="Model"
+              >
+                {PROVIDER_MODELS[provider][0]}
+              </span>
+            )}
           </div>
 
           <button
@@ -1246,18 +1392,27 @@ export default function Home() {
             </option>
           ))}
         </select>
-        <select
-          value={model}
-          onChange={(e) => setModel(e.target.value as ChatModel)}
-          className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
-          aria-label="Model"
-        >
-          {PROVIDER_MODELS[provider].map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
+        {PROVIDER_MODELS[provider].length > 1 ? (
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as ChatModel)}
+            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
+            aria-label="Model"
+          >
+            {PROVIDER_MODELS[provider].map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span
+            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--foreground-muted)]"
+            aria-label="Model"
+          >
+            {PROVIDER_MODELS[provider][0]}
+          </span>
+        )}
       </div>
 
       {/* Conversation / welcome */}
@@ -1332,8 +1487,8 @@ export default function Home() {
                         }}
                       />
                     )}
-                    <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-[var(--foreground)]">
-                      {m.content}
+                    <div className="text-[15px] leading-relaxed text-[var(--foreground)]">
+                      <MarkdownLite text={m.content} />
                     </div>
                     <AuditPanel
                       messageId={m.id}

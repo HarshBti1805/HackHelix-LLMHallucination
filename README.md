@@ -2,7 +2,7 @@
 
 A chat interface that fact-checks LLM responses in real time using a multi-agent verification pipeline. Every factual claim in an AI-generated response is traced back to a verifiable source, and the system produces an audit report distinguishing verified claims, unverified-but-plausible claims, and likely hallucinations — each with a confidence score derived from independent subagent consensus.
 
-The user can switch the **chat model** between **OpenAI (GPT-4o)** and **Google (Gemini 1.5 Pro)** to compare which one hallucinates less on the same prompt. The **auditor** is held constant (OpenAI `gpt-4o-mini`) so the comparison measures the chat model's behavior, not auditor variance.
+The user can switch the **chat model** between **OpenAI (GPT-4o)** and **Google (Gemini 2.5 Flash)** to compare which one hallucinates less on the same prompt. The **auditor** is held constant (OpenAI `gpt-4o-mini`) so the comparison measures the chat model's behavior, not auditor variance.
 
 When hallucinations are detected, the system can generate a grounded "dehallucinate" prompt that uses the evidence already gathered to regenerate a cleaner response.
 
@@ -181,6 +181,7 @@ UI shows before/after diff: claim counts, verification rates
 - **Per-agent evidence sets can diverge.** Each subagent issues its own Tavily query with its own domain scoping, so two agents can land on disjoint source lists for the same claim. This is *intentional* — independence is what makes the consensus signal meaningful — but it does mean the "agents disagreed" badge sometimes reflects different evidence rather than different reasoning over the same evidence. Surfaced live on the Tesla Roadster claim during the demo run.
 - **Regeneration sometimes produces "no verifiable claims".** When the dehallucinate prompt successfully causes the model to abstain ("I cannot verify this study's findings…"), the extractor finds no checkable atomic claims and the after-side of the diff renders `no verifiable claims`. This is the *intended* success path on fabricated-citation prompts: zero claims is strictly better than confident invention. It is not a bug or empty audit. (It is, however, a less satisfying demo visual than `0 contradicted`, so the diff component renders it explicitly rather than silently.)
 - **Regeneration is not guaranteed to succeed in one shot.** On the Johnson prompt, gpt-4o sometimes re-fabricates a *different* citation in the regenerated response (e.g. inventing a study on "obese asthmatic patients" instead). The audit catches the re-fabrication and the Regenerate button appears again on the new message, but a second pass is sometimes required. There is no automatic retry — the user decides whether to regenerate again.
+- **The Gemini chat uses Flash (lighter tier) rather than Pro, to keep the eval harness reliably within free-tier quota. This is a known parity limitation in the three-provider comparison.**
 
 ---
 

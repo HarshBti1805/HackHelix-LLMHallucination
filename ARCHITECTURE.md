@@ -14,7 +14,7 @@ Three distinct LLM responsibilities:
 
 | Responsibility | Provider | Model | Output |
 |---|---|---|---|
-| **Chat** (the model being audited) | OpenAI *or* Gemini (user-selectable) | `gpt-4o` / `gemini-1.5-pro` | Free-form text |
+| **Chat** (the model being audited) | OpenAI *or* Gemini (user-selectable) | `gpt-4o` / `gemini-2.5-flash` | Free-form text |
 | **Claim extraction** | OpenAI (fixed) | `gpt-4o-mini` | JSON (`Claim[]`) |
 | **Claim verification** (3 subagents) | OpenAI (fixed) | `gpt-4o-mini` | JSON (`AgentReport`) |
 | **Dehallucinate prompt builder** | OpenAI (fixed) | `gpt-4o-mini` | JSON (`{ suggested_prompt }`) |
@@ -85,8 +85,7 @@ export type Provider = "openai" | "gemini";
 export type ChatModel =
   | "gpt-4o"
   | "gpt-4o-mini"
-  | "gemini-1.5-pro"
-  | "gemini-1.5-flash";
+  | "gemini-2.5-flash";
 
 export interface ChatMessage {
   id: string;
@@ -264,7 +263,7 @@ Exports:
 ```ts
 export async function geminiChat(
   messages: { role: "user" | "assistant"; content: string }[],
-  model: "gemini-1.5-pro" | "gemini-1.5-flash",
+  model: "gemini-2.5-flash",
 ): Promise<string>;
 ```
 
@@ -272,6 +271,7 @@ Gemini-specific notes:
 - Gemini uses `"model"` as the assistant role; normalize in this wrapper.
 - Gemini's SDK separates system instructions from messages; if needed, extract and pass via `systemInstruction`.
 - Only exposes chat. No JSON-mode variant — Gemini is never used by the auditor.
+- Single supported model: `gemini-2.5-flash`. Pro is intentionally excluded — it is paid-tier only on the consumer Gemini API (free-tier quota = 0), which would silently break the chat UI's first click and the Phase B eval harness's Gemini column. Flash works on the free tier and shares the SDK shape, so the wrapper does not need conditional logic. See `IMPROVEMENTS.md` Phase 0 for the decision and `README.md` "Known limitations" for the user-facing parity caveat.
 
 ### 5.3 `lib/search.ts`
 
@@ -388,7 +388,7 @@ Request:
 {
   "messages": [{ "role": "user", "content": "..." }],
   "provider": "openai" | "gemini",
-  "model": "gpt-4o" | "gpt-4o-mini" | "gemini-1.5-pro" | "gemini-1.5-flash"
+  "model": "gpt-4o" | "gpt-4o-mini" | "gemini-2.5-flash"
 }
 ```
 

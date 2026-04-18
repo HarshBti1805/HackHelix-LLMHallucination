@@ -12,8 +12,7 @@ export type Provider = "openai" | "gemini";
 export type ChatModel =
   | "gpt-4o"
   | "gpt-4o-mini"
-  | "gemini-1.5-pro"
-  | "gemini-1.5-flash";
+  | "gemini-2.5-flash";
 
 export interface ChatMessage {
   id: string;
