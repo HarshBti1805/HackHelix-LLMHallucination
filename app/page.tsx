@@ -1,33 +1,50 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type {
-  AgentReport,
-  AgentRole,
   AuditRequestBody,
   ChatMessage,
   ChatModel,
   ChatRequestBody,
   ChatResponseBody,
-  ClaimAudit,
   DehallucinateRequestBody,
   DehallucinateResponseBody,
   MessageAudit,
   Provider,
-  Verdict,
 } from "@/types";
+import { ClaimList } from "@/components/audit/ClaimList";
+import { SummaryBar } from "@/components/audit/SummaryBar";
+import { failedClaimCount } from "@/components/audit/verdict";
 
 /**
  * Chat UI inspired by claude.ai's minimal aesthetic.
  * Frontend-only theme toggle (light/dark) persists to localStorage.
  */
 
-const PROVIDER_MODELS: Record<Provider, ChatModel[]> = {
+/**
+ * Providers actually wired into this chat switcher.
+ *
+ * The public `Provider` union in `types.ts` includes `"anthropic"` ahead of
+ * its runtime wiring (IMPROVEMENTS.md task A.1 added the type, Phase B tasks
+ * B.1–B.4 add the SDK adapter, the chat-route case, and finally the UI
+ * option here). Until then the UI only knows about OpenAI and Gemini, so
+ * `WiredProvider` narrows to those two and `Record<WiredProvider, …>` keeps
+ * the model/label maps exhaustive without forcing us to ship a placeholder
+ * Anthropic entry that would render as a broken option.
+ *
+ * When task B.4 lands, widen this alias to `Provider` (or just delete it),
+ * add the Anthropic entries to both records, and the rest of the switcher
+ * picks them up automatically.
+ */
+type WiredProvider = Extract<Provider, "openai" | "gemini">;
+
+const PROVIDER_MODELS: Record<WiredProvider, ChatModel[]> = {
   openai: ["gpt-4o", "gpt-4o-mini"],
   gemini: ["gemini-2.5-flash"],
 };
 
-const PROVIDER_LABEL: Record<Provider, string> = {
+const PROVIDER_LABEL: Record<WiredProvider, string> = {
   openai: "OpenAI",
   gemini: "Gemini",
 };
@@ -84,92 +101,12 @@ function makeUserMessage(content: string): ChatMessage {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Verdict presentation
-//
-// Color coding for the audit panel (PROJECT_PLAN.md task 3.4). Each verdict
-// gets:
-//   - a left border stripe (the eye-catching color)
-//   - a tinted background (muted; legible in both themes)
-//   - a label color used inside the verdict pill
-//   - a short human label
-// We deliberately use Tailwind palette utilities rather than the brand CSS
-// variables, because the brand accent is already orange and would collide
-// with the "contradicted" verdict.
+// Verdict presentation tokens (VERDICT_STYLES, formatConfidence, etc.) and
+// the SummaryBar / ClaimRow / AgentSection / ClaimList components were
+// factored out into `components/audit/` at IMPROVEMENTS.md Phase A task
+// A.7-prep so the chat AuditPanel below and the new `/document` report
+// view render the same audit affordances. Imports at the top of this file.
 // ─────────────────────────────────────────────────────────────────────────────
-
-interface VerdictStyle {
-  label: string;
-  border: string;
-  bg: string;
-  pill: string;
-}
-
-const VERDICT_STYLES: Record<Verdict, VerdictStyle> = {
-  verified: {
-    label: "Verified",
-    border: "border-l-emerald-500",
-    bg: "bg-emerald-50/70 dark:bg-emerald-950/30",
-    pill: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200",
-  },
-  unverified_plausible: {
-    label: "Unverified, plausible",
-    border: "border-l-amber-500",
-    bg: "bg-amber-50/70 dark:bg-amber-950/30",
-    pill: "bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200",
-  },
-  contradicted: {
-    label: "Contradicted",
-    border: "border-l-orange-500",
-    bg: "bg-orange-50/70 dark:bg-orange-950/30",
-    pill: "bg-orange-100 text-orange-900 dark:bg-orange-900/50 dark:text-orange-200",
-  },
-  likely_hallucination: {
-    label: "Likely hallucination",
-    border: "border-l-rose-500",
-    bg: "bg-rose-50/70 dark:bg-rose-950/30",
-    pill: "bg-rose-100 text-rose-900 dark:bg-rose-900/50 dark:text-rose-200",
-  },
-};
-
-function formatConfidence(c: number): string {
-  // 0..1 → "0.0%" .. "100.0%", capped to one decimal place.
-  const pct = Math.max(0, Math.min(1, c)) * 100;
-  return `${pct.toFixed(1)}%`;
-}
-
-/**
- * Number of failed claims (contradicted + likely_hallucination) in an audit.
- *
- * Drives the visibility of the "Regenerate without hallucinations" button
- * (PROJECT_PLAN.md task 4.4). We deliberately re-derive this in the client
- * instead of importing from `lib/dehallucinate.ts` — that lib pulls in the
- * OpenAI SDK and would be wrong to bundle into a client component.
- */
-function failedClaimCount(audit: MessageAudit): number {
-  return audit.summary.contradicted + audit.summary.likely_hallucination;
-}
-
-// Display labels for the four summary-bar categories (PROJECT_PLAN.md task
-// 3.7). Order matches the spec example "verified · unverified · …" — we
-// iterate this array so a row always appears in the same position regardless
-// of which counts happen to be non-zero in a given audit.
-const SUMMARY_CATEGORIES: {
-  verdict: Verdict;
-  field: keyof MessageAudit["summary"];
-  singular: string;
-  plural: string;
-}[] = [
-  { verdict: "verified", field: "verified", singular: "verified", plural: "verified" },
-  { verdict: "unverified_plausible", field: "unverified_plausible", singular: "unverified", plural: "unverified" },
-  { verdict: "contradicted", field: "contradicted", singular: "contradicted", plural: "contradicted" },
-  { verdict: "likely_hallucination", field: "likely_hallucination", singular: "likely hallucination", plural: "likely hallucinations" },
-];
-
-const AGENT_ROLE_LABEL: Record<AgentRole, string> = {
-  prosecutor: "Prosecutor",
-  defender: "Defender",
-  literalist: "Literalist",
-};
 
 function ChevronIcon({ className = "" }: { className?: string }) {
   return (
@@ -236,41 +173,6 @@ function AuditEmpty() {
   return (
     <div className="mt-3 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--foreground-muted)]">
       No verifiable claims found in this response.
-    </div>
-  );
-}
-
-function SummaryBar({ summary }: { summary: MessageAudit["summary"] }) {
-  // Build the visible list once so we know whether to render at all and so
-  // the separator dots only appear *between* items.
-  const items = SUMMARY_CATEGORIES.flatMap((cat) => {
-    const count = summary[cat.field];
-    if (count <= 0) return [];
-    const noun = count === 1 ? cat.singular : cat.plural;
-    return [{ verdict: cat.verdict, text: `${count} ${noun}` }];
-  });
-
-  if (items.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--foreground-muted)]">
-      {items.map((item, i) => {
-        const style = VERDICT_STYLES[item.verdict];
-        return (
-          <span key={item.verdict} className="flex items-center gap-2">
-            {i > 0 && (
-              <span aria-hidden="true" className="text-[var(--foreground-muted)] opacity-50">
-                ·
-              </span>
-            )}
-            <span
-              className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style.pill}`}
-            >
-              {item.text}
-            </span>
-          </span>
-        );
-      })}
     </div>
   );
 }
@@ -367,136 +269,6 @@ function BeforeAfterDiff({ before, after }: BeforeAfterDiffProps) {
   );
 }
 
-function AgentSection({ report }: { report: AgentReport }) {
-  const style = VERDICT_STYLES[report.verdict];
-  return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)]/60 px-2.5 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--foreground)]">
-          {AGENT_ROLE_LABEL[report.agent_role]}
-        </span>
-        <span
-          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style.pill}`}
-        >
-          {style.label}
-        </span>
-        <span className="text-[11px] font-medium text-[var(--foreground-muted)]">
-          {formatConfidence(report.confidence)} confidence
-        </span>
-      </div>
-      <p className="whitespace-pre-wrap text-[12.5px] leading-snug text-[var(--foreground)]">
-        {report.reasoning}
-      </p>
-      <div className="mt-1 flex flex-col gap-1">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
-          Sources
-        </span>
-        {report.sources.length === 0 ? (
-          <span className="text-[11px] text-[var(--foreground-muted)] italic">
-            No sources
-          </span>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {report.sources.map((src, i) => (
-              <li key={`${src.url}-${i}`} className="flex flex-col">
-                <a
-                  href={src.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={src.title}
-                  className="text-[12px] font-medium text-[var(--accent)] underline decoration-dotted underline-offset-2 hover:opacity-80"
-                >
-                  {src.domain || src.url}
-                </a>
-                {src.title && (
-                  <span className="line-clamp-2 text-[11px] text-[var(--foreground-muted)]">
-                    {src.title}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface ClaimRowProps {
-  ca: ClaimAudit;
-  isExpanded: boolean;
-  onToggle: () => void;
-}
-
-function ClaimRow({ ca, isExpanded, onToggle }: ClaimRowProps) {
-  const style = VERDICT_STYLES[ca.consensus_verdict];
-  return (
-    <div
-      className={`flex flex-col rounded-lg border border-[var(--border)] border-l-4 ${style.border} ${style.bg}`}
-    >
-      {/* Clickable header — the entire visible card responds to click. We keep
-          source links and other interactives OUT of this button to avoid
-          nesting interactive elements inside <button>. */}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={isExpanded}
-        className="flex w-full flex-col gap-2 px-3 py-2 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${style.pill}`}
-          >
-            {style.label}
-          </span>
-          <span className="text-[11px] font-medium text-[var(--foreground-muted)]">
-            {formatConfidence(ca.consensus_confidence)} confidence
-          </span>
-          {ca.agents_disagreed && (
-            <span
-              title="Agents disagreed — click to see per-agent breakdown"
-              className="inline-flex items-center gap-1 rounded-full border border-amber-500/60 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:border-amber-400/60 dark:bg-amber-900/40 dark:text-amber-200"
-            >
-              <span aria-hidden="true">⚠</span>
-              <span>Agents disagreed</span>
-            </span>
-          )}
-          <ChevronIcon
-            className={`ml-auto h-4 w-4 shrink-0 text-[var(--foreground-muted)] transition-transform duration-150 ${
-              isExpanded ? "rotate-180" : ""
-            }`}
-          />
-        </div>
-        <p
-          className={`text-[13px] leading-snug text-[var(--foreground)] ${
-            isExpanded ? "" : "line-clamp-3"
-          }`}
-        >
-          {ca.claim.text}
-        </p>
-      </button>
-
-      {isExpanded && (
-        <div className="flex flex-col gap-2 border-t border-[var(--border)]/70 px-3 py-3">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
-              Original sentence
-            </span>
-            <p className="text-[12px] italic leading-snug text-[var(--foreground-muted)]">
-              “{ca.claim.sentence}”
-            </p>
-          </div>
-          <div className="flex flex-col gap-2">
-            {ca.per_agent_reports.map((report) => (
-              <AgentSection key={report.agent_role} report={report} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 interface AuditPanelProps {
   messageId: string;
   isPending: boolean;
@@ -517,19 +289,6 @@ function AuditPanel({
   isDehallucPending,
   dehallucError,
 }: AuditPanelProps) {
-  // Local expansion state — see header comment block above. A Set keyed by
-  // claim id lets multiple rows be open simultaneously (per spec test 3).
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-
-  function toggleExpanded(claimId: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(claimId)) next.delete(claimId);
-      else next.add(claimId);
-      return next;
-    });
-  }
-
   // Render priority: pending → error → audit (which may be empty).
   // We prefer "still loading" over "failed" so a stale error from a prior
   // attempt never appears alongside a fresh in-flight audit.
@@ -562,14 +321,10 @@ function AuditPanel({
           Couldn&apos;t build a regeneration prompt: {dehallucError}
         </div>
       )}
-      {audit.claims.map((ca) => (
-        <ClaimRow
-          key={ca.claim.id}
-          ca={ca}
-          isExpanded={expanded.has(ca.claim.id)}
-          onToggle={() => toggleExpanded(ca.claim.id)}
-        />
-      ))}
+      {/* Expansion state lives inside ClaimList — multiple rows can be open
+          at once. Re-mounting AuditPanel (e.g. on a fresh audit) resets the
+          set, so stale claim ids never leak across audits. */}
+      <ClaimList claims={audit.claims} />
     </div>
   );
 }
@@ -1020,7 +775,7 @@ export default function Home() {
     }
   }
 
-  function changeProvider(next: Provider) {
+  function changeProvider(next: WiredProvider) {
     setProvider(next);
     setModel(PROVIDER_MODELS[next][0]);
   }
@@ -1325,28 +1080,44 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/*
+            Cross-link to the dedicated /document audit view (IMPROVEMENTS.md
+            Phase A task A.10). Sits next to the provider switcher so it's
+            findable but visually subordinate to the chat composer — the
+            chat is still the primary surface; document audit is a
+            separate workflow a user opts into deliberately.
+          */}
+          <Link
+            href="/document"
+            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
+            aria-label="Audit a document"
+            title="Open the document audit view"
+          >
+            <span aria-hidden="true">📄</span>
+            <span>Audit a document</span>
+          </Link>
           <div className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-1 py-1 text-xs sm:flex">
             <select
               value={provider}
-              onChange={(e) => changeProvider(e.target.value as Provider)}
+              onChange={(e) => changeProvider(e.target.value as WiredProvider)}
               className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
               aria-label="Provider"
             >
-              {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
+              {(Object.keys(PROVIDER_MODELS) as WiredProvider[]).map((p) => (
                 <option key={p} value={p} className="bg-[var(--surface)]">
                   {PROVIDER_LABEL[p]}
                 </option>
               ))}
             </select>
             <span className="text-[var(--foreground-muted)]">/</span>
-            {PROVIDER_MODELS[provider].length > 1 ? (
+            {PROVIDER_MODELS[provider as WiredProvider].length > 1 ? (
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value as ChatModel)}
                 className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
                 aria-label="Model"
               >
-                {PROVIDER_MODELS[provider].map((m) => (
+                {PROVIDER_MODELS[provider as WiredProvider].map((m) => (
                   <option key={m} value={m} className="bg-[var(--surface)]">
                     {m}
                   </option>
@@ -1357,7 +1128,7 @@ export default function Home() {
                 className="rounded-full px-2 py-1 text-xs text-[var(--foreground-muted)]"
                 aria-label="Model"
               >
-                {PROVIDER_MODELS[provider][0]}
+                {PROVIDER_MODELS[provider as WiredProvider][0]}
               </span>
             )}
           </div>
@@ -1382,24 +1153,24 @@ export default function Home() {
       <div className="flex items-center justify-center gap-1 border-b border-[var(--border)] bg-background px-4 py-2 sm:hidden">
         <select
           value={provider}
-          onChange={(e) => changeProvider(e.target.value as Provider)}
+          onChange={(e) => changeProvider(e.target.value as WiredProvider)}
           className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
           aria-label="Provider"
         >
-          {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
+          {(Object.keys(PROVIDER_MODELS) as WiredProvider[]).map((p) => (
             <option key={p} value={p}>
               {PROVIDER_LABEL[p]}
             </option>
           ))}
         </select>
-        {PROVIDER_MODELS[provider].length > 1 ? (
+        {PROVIDER_MODELS[provider as WiredProvider].length > 1 ? (
           <select
             value={model}
             onChange={(e) => setModel(e.target.value as ChatModel)}
             className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
             aria-label="Model"
           >
-            {PROVIDER_MODELS[provider].map((m) => (
+            {PROVIDER_MODELS[provider as WiredProvider].map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
@@ -1410,7 +1181,7 @@ export default function Home() {
             className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--foreground-muted)]"
             aria-label="Model"
           >
-            {PROVIDER_MODELS[provider][0]}
+            {PROVIDER_MODELS[provider as WiredProvider][0]}
           </span>
         )}
       </div>
