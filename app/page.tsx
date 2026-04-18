@@ -10,6 +10,8 @@ import type {
   ChatRequestBody,
   ChatResponseBody,
   ClaimAudit,
+  DehallucinateRequestBody,
+  DehallucinateResponseBody,
   MessageAudit,
   Provider,
   Verdict,
@@ -93,6 +95,18 @@ function formatConfidence(c: number): string {
   // 0..1 → "0.0%" .. "100.0%", capped to one decimal place.
   const pct = Math.max(0, Math.min(1, c)) * 100;
   return `${pct.toFixed(1)}%`;
+}
+
+/**
+ * Number of failed claims (contradicted + likely_hallucination) in an audit.
+ *
+ * Drives the visibility of the "Regenerate without hallucinations" button
+ * (PROJECT_PLAN.md task 4.4). We deliberately re-derive this in the client
+ * instead of importing from `lib/dehallucinate.ts` — that lib pulls in the
+ * OpenAI SDK and would be wrong to bundle into a client component.
+ */
+function failedClaimCount(audit: MessageAudit): number {
+  return audit.summary.contradicted + audit.summary.likely_hallucination;
 }
 
 // Display labels for the four summary-bar categories (PROJECT_PLAN.md task
@@ -356,12 +370,20 @@ interface AuditPanelProps {
   isPending: boolean;
   audit: MessageAudit | undefined;
   errorMessage: string | undefined;
+  // Dehallucinate plumbing (PROJECT_PLAN.md tasks 4.4–4.5). Optional so this
+  // component stays usable without a regenerate flow wired up.
+  onDehallucinate?: () => void;
+  isDehallucPending?: boolean;
+  dehallucError?: string;
 }
 
 function AuditPanel({
   isPending,
   audit,
   errorMessage,
+  onDehallucinate,
+  isDehallucPending,
+  dehallucError,
 }: AuditPanelProps) {
   // Local expansion state — see header comment block above. A Set keyed by
   // claim id lets multiple rows be open simultaneously (per spec test 3).
@@ -384,9 +406,30 @@ function AuditPanel({
   if (!audit) return null;
   if (audit.claims.length === 0) return <AuditEmpty />;
 
+  // The "Regenerate without hallucinations" button is intentionally hidden
+  // when there's nothing to dehallucinate. Showing it on a fully-verified
+  // message would be a no-op and would dilute the signal that something is
+  // actually wrong.
+  const failed = failedClaimCount(audit);
+  const showRegenerate = failed > 0 && Boolean(onDehallucinate);
+
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <SummaryBar summary={audit.summary} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SummaryBar summary={audit.summary} />
+        {showRegenerate && (
+          <DehallucinateButton
+            onClick={onDehallucinate!}
+            pending={Boolean(isDehallucPending)}
+            failedCount={failed}
+          />
+        )}
+      </div>
+      {dehallucError && (
+        <div className="rounded-md border border-rose-300/60 bg-rose-50 px-2 py-1 text-[11px] text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
+          Couldn&apos;t build a regeneration prompt: {dehallucError}
+        </div>
+      )}
       {audit.claims.map((ca) => (
         <ClaimRow
           key={ca.claim.id}
@@ -395,6 +438,180 @@ function AuditPanel({
           onToggle={() => toggleExpanded(ca.claim.id)}
         />
       ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dehallucinate button + modal (PROJECT_PLAN.md tasks 4.4–4.5)
+//
+// The button is a message-level action, not a claim-level action — it lives
+// next to the SummaryBar inside AuditPanel, never inside a ClaimRow.
+// Clicking it kicks off a POST to /api/dehallucinate. The modal opens only
+// after that response lands; while the request is in flight the button shows
+// its own loading state so the user gets instant feedback.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface DehallucinateButtonProps {
+  onClick: () => void;
+  pending: boolean;
+  failedCount: number;
+}
+
+function DehallucinateButton({
+  onClick,
+  pending,
+  failedCount,
+}: DehallucinateButtonProps) {
+  const label = pending
+    ? "Building prompt…"
+    : `Regenerate without hallucinations (${failedCount})`;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending}
+      title="Build a grounded prompt that quotes the failed claims and inlines the audit evidence"
+      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/50 bg-[var(--accent)]/10 px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)] transition hover:bg-[var(--accent)]/15 disabled:cursor-wait disabled:opacity-60"
+    >
+      {pending && (
+        <span aria-hidden="true" className="flex items-center gap-0.5">
+          <span className="h-1 w-1 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.3s]" />
+          <span className="h-1 w-1 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.15s]" />
+          <span className="h-1 w-1 animate-bounce rounded-full bg-[var(--accent)]" />
+        </span>
+      )}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+interface DehallucinateModalProps {
+  open: boolean;
+  suggestedPrompt: string | null;
+  editedPrompt: string;
+  onEdit: (next: string) => void;
+  onCancel: () => void;
+  onSend: () => void;
+}
+
+function DehallucinateModal({
+  open,
+  suggestedPrompt,
+  editedPrompt,
+  onEdit,
+  onCancel,
+  onSend,
+}: DehallucinateModalProps) {
+  // Body-scroll lock + Escape-to-close are mounted in a single effect so
+  // they stay symmetric: both attach when the modal opens, both detach on
+  // unmount or close. Using `document.body.style.overflow` directly is the
+  // pragmatic choice — no library, easy to reason about — but we restore
+  // the *previous* value rather than hardcoding "" so we don't clobber any
+  // page-level overflow setting.
+  useEffect(() => {
+    if (!open) return;
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onCancel();
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [open, onCancel]);
+
+  if (!open || suggestedPrompt === null) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dehalluc-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      {/* Stop propagation on the inner card so click-on-backdrop closes but
+          click-inside-card never does. */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col">
+            <h2
+              id="dehalluc-modal-title"
+              className="text-base font-semibold text-[var(--foreground)]"
+            >
+              Review the regeneration prompt
+            </h2>
+            <p className="mt-1 text-[12px] text-[var(--foreground-muted)]">
+              The auditor built this prompt from the failed claims and their
+              gathered evidence. Edit anything you like — your final version
+              will be sent as your next chat message.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Close"
+            className="-mr-1 -mt-1 rounded-md p-1 text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M6 18L18 6" />
+            </svg>
+          </button>
+        </div>
+
+        <textarea
+          value={editedPrompt}
+          onChange={(e) => onEdit(e.target.value)}
+          className="min-h-[280px] flex-1 resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] leading-relaxed text-[var(--foreground)] shadow-inner focus:border-[var(--accent)]/60 focus:outline-none"
+          spellCheck={false}
+        />
+
+        <p className="text-[11px] text-[var(--foreground-muted)]">
+          On <span className="font-semibold">Send</span>, this exact text
+          (with your edits) will be sent as your next message and the new
+          response will be re-audited. On{" "}
+          <span className="font-semibold">Cancel</span> nothing happens —
+          your conversation stays as it is.
+        </p>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[12px] font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-muted)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSend}
+            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--accent-foreground)] transition hover:opacity-90"
+          >
+            Send
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -489,6 +706,30 @@ export default function Home() {
   );
   const [auditErrors, setAuditErrors] = useState<Record<string, string>>({});
 
+  // Dehallucinate state per ARCHITECTURE.md §7. The modal is a single
+  // top-level slot — only one regenerate review can be open at a time
+  // (matches the spec shape and keeps focus management simple).
+  // `dehallucPending` and `dehallucErrors` are message-id-keyed so the
+  // button on each audited message can show its own loading/error state
+  // independently of any other in-flight dehallucinate request.
+  const [dehallucinateModal, setDehallucinateModal] = useState<{
+    open: boolean;
+    messageId: string | null;
+    suggestedPrompt: string | null;
+    editedPrompt: string;
+  }>({
+    open: false,
+    messageId: null,
+    suggestedPrompt: null,
+    editedPrompt: "",
+  });
+  const [dehallucPending, setDehallucPending] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [dehallucErrors, setDehallucErrors] = useState<Record<string, string>>(
+    {},
+  );
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -579,6 +820,118 @@ export default function Home() {
           return next;
         });
       });
+  }
+
+  /**
+   * Find the user message that produced the given assistant message — i.e.
+   * the most recent user turn at or before the assistant message's index.
+   * The dehallucinator needs this to preserve the user's original intent
+   * in the rewrite.
+   */
+  function findOriginalUserMessage(assistantId: string): ChatMessage | null {
+    const idx = messages.findIndex((m) => m.id === assistantId);
+    if (idx < 0) return null;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return messages[i];
+    }
+    return null;
+  }
+
+  /**
+   * Kick off a dehallucinate request for an audited assistant message.
+   * On success, opens the review modal pre-filled with the suggested prompt.
+   * On failure, surfaces the error inline next to the button instead of
+   * blocking the chat (mirrors the audit-error UX).
+   */
+  function requestDehallucinate(messageId: string) {
+    const assistantMsg = messages.find((m) => m.id === messageId);
+    const audit = audits[messageId];
+    const originalUser = findOriginalUserMessage(messageId);
+
+    if (!assistantMsg || !audit || !originalUser) {
+      setDehallucErrors((prev) => ({
+        ...prev,
+        [messageId]: "Missing message, audit, or original user prompt.",
+      }));
+      return;
+    }
+
+    setDehallucPending((prev) => {
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+    setDehallucErrors((prev) => {
+      if (!(messageId in prev)) return prev;
+      const next = { ...prev };
+      delete next[messageId];
+      return next;
+    });
+
+    const body: DehallucinateRequestBody = {
+      originalUserMessage: originalUser.content,
+      flawedResponse: assistantMsg.content,
+      audit,
+    };
+
+    fetch("/api/dehallucinate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(
+            errBody.error ?? `Dehallucinate request failed: ${res.status}`,
+          );
+        }
+        return (await res.json()) as DehallucinateResponseBody;
+      })
+      .then(({ suggested_prompt }) => {
+        setDehallucinateModal({
+          open: true,
+          messageId,
+          suggestedPrompt: suggested_prompt,
+          editedPrompt: suggested_prompt,
+        });
+      })
+      .catch((err: unknown) => {
+        const msg =
+          err instanceof Error ? err.message : "Dehallucinate failed";
+        console.error("[dehallucinate] failed for", messageId, err);
+        setDehallucErrors((prev) => ({ ...prev, [messageId]: msg }));
+      })
+      .finally(() => {
+        setDehallucPending((prev) => {
+          if (!prev.has(messageId)) return prev;
+          const next = new Set(prev);
+          next.delete(messageId);
+          return next;
+        });
+      });
+  }
+
+  function closeDehallucModal() {
+    setDehallucinateModal({
+      open: false,
+      messageId: null,
+      suggestedPrompt: null,
+      editedPrompt: "",
+    });
+  }
+
+  // Placeholder Send handler (PROJECT_PLAN.md task 4.5). Real /api/chat
+  // re-issue + re-audit is wired in task 4.6 — for now we only confirm
+  // the edited text round-tripped correctly.
+  function sendDehallucPrompt() {
+    console.log(
+      "[dehallucinate] Send pressed (placeholder). Edited prompt:\n",
+      dehallucinateModal.editedPrompt,
+    );
+    closeDehallucModal();
   }
 
   async function sendMessage(text: string) {
@@ -790,6 +1143,9 @@ export default function Home() {
                       isPending={pendingAudits.has(m.id)}
                       audit={audits[m.id]}
                       errorMessage={auditErrors[m.id]}
+                      onDehallucinate={() => requestDehallucinate(m.id)}
+                      isDehallucPending={dehallucPending.has(m.id)}
+                      dehallucError={dehallucErrors[m.id]}
                     />
                   </div>
                 </div>
@@ -857,6 +1213,17 @@ export default function Home() {
           </p>
         </form>
       </div>
+
+      <DehallucinateModal
+        open={dehallucinateModal.open}
+        suggestedPrompt={dehallucinateModal.suggestedPrompt}
+        editedPrompt={dehallucinateModal.editedPrompt}
+        onEdit={(next) =>
+          setDehallucinateModal((prev) => ({ ...prev, editedPrompt: next }))
+        }
+        onCancel={closeDehallucModal}
+        onSend={sendDehallucPrompt}
+      />
     </div>
   );
 }
