@@ -22,6 +22,18 @@ export interface ChatMessage {
   provider?: Provider;
   model?: ChatModel;
   timestamp: number;
+  /**
+   * If set, this message is part of a dehallucinate regeneration loop
+   * (PROJECT_PLAN.md task 4.6/4.7). Points to the *flawed* assistant
+   * message id that this regeneration is trying to fix.
+   *
+   * Stamped on BOTH the user message that carries the edited dehallucinate
+   * prompt AND on the assistant message produced in response to it, so the
+   * before/after diff can be rendered from either direction by the same
+   * pointer. Lives only in client React state — never persisted, never
+   * sent to /api/chat as part of the message payload.
+   */
+  regenerates_message_id?: string;
 }
 
 // ---- Claims and audits ----

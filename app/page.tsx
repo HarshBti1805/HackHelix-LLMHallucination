@@ -235,6 +235,98 @@ function SummaryBar({ summary }: { summary: MessageAudit["summary"] }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Before/after diff (PROJECT_PLAN.md task 4.7)
+//
+// Rendered above the regenerated assistant message body, only when that
+// message has a `regenerates_message_id` link. Reuses the SummaryBar so the
+// pills, colors, and spacing match exactly — the diff is just two summaries
+// side by side with an arrow between them. Each side independently handles
+// its own pending / errored / empty / populated state, because the "after"
+// audit will almost always still be in flight when the diff first mounts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SideAuditState {
+  audit: MessageAudit | undefined;
+  pending: boolean;
+  error: string | undefined;
+}
+
+function BeforeAfterSide({
+  label,
+  state,
+}: {
+  label: string;
+  state: SideAuditState;
+}) {
+  let body: React.ReactNode;
+  if (state.pending) {
+    body = (
+      <span className="italic text-[var(--foreground-muted)]">auditing…</span>
+    );
+  } else if (state.error) {
+    body = (
+      <span className="italic text-[var(--foreground-muted)]">
+        audit unavailable
+      </span>
+    );
+  } else if (!state.audit) {
+    body = (
+      <span className="italic text-[var(--foreground-muted)]">
+        no audit yet
+      </span>
+    );
+  } else if (state.audit.summary.total_claims === 0) {
+    body = (
+      <span className="italic text-[var(--foreground-muted)]">
+        no verifiable claims
+      </span>
+    );
+  } else {
+    body = (
+      <>
+        <span className="text-[10px] text-[var(--foreground-muted)]">
+          {state.audit.summary.total_claims} total
+        </span>
+        <SummaryBar summary={state.audit.summary} />
+      </>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+        {label}:
+      </span>
+      {body}
+    </div>
+  );
+}
+
+interface BeforeAfterDiffProps {
+  before: SideAuditState;
+  after: SideAuditState;
+}
+
+function BeforeAfterDiff({ before, after }: BeforeAfterDiffProps) {
+  return (
+    <div className="mb-3 flex flex-col gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+        Regeneration audit
+      </span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <BeforeAfterSide label="Before" state={before} />
+        <span
+          className="text-[var(--foreground-muted)]"
+          aria-hidden="true"
+        >
+          →
+        </span>
+        <BeforeAfterSide label="After" state={after} />
+      </div>
+    </div>
+  );
+}
+
 function AgentSection({ report }: { report: AgentReport }) {
   const style = VERDICT_STYLES[report.verdict];
   return (
@@ -923,31 +1015,59 @@ export default function Home() {
     });
   }
 
-  // Placeholder Send handler (PROJECT_PLAN.md task 4.5). Real /api/chat
-  // re-issue + re-audit is wired in task 4.6 — for now we only confirm
-  // the edited text round-tripped correctly.
+  /**
+   * Closes the dehallucinate modal and immediately re-issues the edited
+   * prompt as a normal chat turn (PROJECT_PLAN.md task 4.6).
+   *
+   * Two design choices worth flagging:
+   *   1. We close the modal *before* the network round-trip so the user
+   *      gets instant feedback. The chat-level pending spinner takes over
+   *      from there.
+   *   2. We do NOT introduce a special /api/regenerate endpoint. The
+   *      regenerated turn is just a normal user → assistant turn with one
+   *      extra piece of metadata (`regenerates_message_id`) so the
+   *      before/after diff can find the original. Both `sendMessage` and
+   *      this handler funnel through `sendUserMessage`.
+   */
   function sendDehallucPrompt() {
-    console.log(
-      "[dehallucinate] Send pressed (placeholder). Edited prompt:\n",
-      dehallucinateModal.editedPrompt,
-    );
+    const text = dehallucinateModal.editedPrompt;
+    const targetId = dehallucinateModal.messageId;
     closeDehallucModal();
+    if (!text.trim() || !targetId) return;
+    void sendUserMessage(text, { regeneratesMessageId: targetId });
   }
 
-  async function sendMessage(text: string) {
+  /**
+   * Core chat-turn pipeline shared by the composer and the dehallucinate
+   * modal. Appends a user message → calls /api/chat → appends the
+   * assistant reply → fires /api/audit (non-blocking).
+   *
+   * `opts.regeneratesMessageId`, when set, is stamped on BOTH the new user
+   * message and the assistant reply so either side can render the
+   * before/after diff via the same pointer (task 4.7).
+   */
+  async function sendUserMessage(
+    text: string,
+    opts?: { regeneratesMessageId?: string },
+  ) {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
 
-    const userMsg = makeUserMessage(trimmed);
+    const userMsg: ChatMessage = {
+      ...makeUserMessage(trimmed),
+      regenerates_message_id: opts?.regeneratesMessageId,
+    };
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
-    setInput("");
     setPending(true);
     setError(null);
 
     try {
       const body: ChatRequestBody = {
-        messages: nextMessages.map((m) => ({ role: m.role, content: m.content })),
+        messages: nextMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
         provider,
         model,
       };
@@ -957,19 +1077,30 @@ export default function Home() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+        const errBody = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
         throw new Error(errBody.error ?? `Request failed: ${res.status}`);
       }
       const data = (await res.json()) as ChatResponseBody;
-      setMessages((prev) => [...prev, data.message]);
+      const assistantMsg: ChatMessage = {
+        ...data.message,
+        regenerates_message_id: opts?.regeneratesMessageId,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
       // Kick off the audit but DO NOT await it — chat must stay unblocked.
-      requestAudit(data.message.id, data.message.content);
+      requestAudit(assistantMsg.id, assistantMsg.content);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setError(msg);
     } finally {
       setPending(false);
     }
+  }
+
+  async function sendMessage(text: string) {
+    setInput("");
+    await sendUserMessage(text);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -1134,6 +1265,20 @@ export default function Home() {
                       <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
                         {m.provider} · {m.model}
                       </div>
+                    )}
+                    {m.regenerates_message_id && (
+                      <BeforeAfterDiff
+                        before={{
+                          audit: audits[m.regenerates_message_id],
+                          pending: pendingAudits.has(m.regenerates_message_id),
+                          error: auditErrors[m.regenerates_message_id],
+                        }}
+                        after={{
+                          audit: audits[m.id],
+                          pending: pendingAudits.has(m.id),
+                          error: auditErrors[m.id],
+                        }}
+                      />
                     )}
                     <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-[var(--foreground)]">
                       {m.content}
