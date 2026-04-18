@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type {
   AuditRequestBody,
   ChatMessage,
@@ -47,8 +49,6 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   anthropic: "Anthropic",
 };
 
-type Theme = "light" | "dark";
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Demo prompts (PROJECT_PLAN.md task 5.1)
 //
@@ -89,6 +89,22 @@ const DEMO_PROMPTS: DemoPrompt[] = [
   },
 ];
 
+/**
+ * Short, locale-aware HH:MM for the message-meta line; the full timestamp
+ * goes into the `title` attribute as a hover tooltip so power-users can
+ * still see exact ms without the chat surface getting cluttered.
+ */
+function formatTime(ts: number): string {
+  try {
+    return new Date(ts).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
 function makeUserMessage(content: string): ChatMessage {
   return {
     id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -105,23 +121,6 @@ function makeUserMessage(content: string): ChatMessage {
 // A.7-prep so the chat AuditPanel below and the new `/document` report
 // view render the same audit affordances. Imports at the top of this file.
 // ─────────────────────────────────────────────────────────────────────────────
-
-function ChevronIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Audit panel components (PROJECT_PLAN.md tasks 3.3–3.7)
@@ -568,6 +567,59 @@ function SendIcon({ className = "" }: { className?: string }) {
   );
 }
 
+function CopyIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function ArrowDownIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14" />
+      <path d="m19 12-7 7-7-7" />
+    </svg>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MarkdownLite
 //
@@ -706,13 +758,28 @@ function MarkdownLite({ text }: { text: string }) {
 }
 
 export default function Home() {
-  const [theme, setTheme] = useState<Theme>("light");
+  // Theme is owned by `next-themes` (see components/ThemeProvider.tsx) so the
+  // <html class="dark"> bootstrapping happens without an inline <script>,
+  // which is what tripped Next 16 / React 19's renderer warning. We track a
+  // local `themeMounted` flag to suppress the toggle's icon during SSR — the
+  // server can't know the user's OS preference, and rendering a sun/moon
+  // before hydration would either flash the wrong icon or warn about a
+  // mismatch.
+  const { resolvedTheme, setTheme } = useTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => {
+    setThemeMounted(true);
+  }, []);
+  const isDark = themeMounted && resolvedTheme === "dark";
+
   const [provider, setProvider] = useState<Provider>("openai");
   const [model, setModel] = useState<ChatModel>("gpt-4o");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   // Audit state per ARCHITECTURE.md §7.
   // Three mutually-exclusive states per assistant message id:
@@ -754,23 +821,10 @@ export default function Home() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // Sync theme state with what the no-flash script set on <html>
-  useEffect(() => {
-    const isDark = document.documentElement.classList.contains("dark");
-    setTheme(isDark ? "dark" : "light");
-  }, []);
+  const stickyBottomRef = useRef(true);
 
   function toggleTheme() {
-    const next: Theme = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.classList.toggle("dark", next === "dark");
-    document.documentElement.style.colorScheme = next;
-    try {
-      localStorage.setItem("theme", next);
-    } catch {
-      /* ignore storage errors */
-    }
+    setTheme(isDark ? "light" : "dark");
   }
 
   function changeProvider(next: Provider) {
@@ -786,12 +840,74 @@ export default function Home() {
     ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`;
   }, [input]);
 
-  // Auto-scroll to bottom on new message
+  // Track whether user is near the bottom; used to avoid yanking scroll.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    const onScroll = () => {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const nearBottom = distance < 140;
+      stickyBottomRef.current = nearBottom;
+      setIsAtBottom(nearBottom);
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function scrollToBottom(behavior: ScrollBehavior = "smooth") {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }
+
+  // Auto-scroll only when user is already near the bottom.
+  useEffect(() => {
+    if (stickyBottomRef.current) {
+      scrollToBottom("smooth");
+    }
   }, [messages, pending]);
+
+  // Global keyboard shortcuts:
+  //   Cmd/Ctrl+K  → focus the composer from anywhere
+  //   Esc         → if composer is focused, clear input and blur
+  // We intentionally scope Esc to only fire when the textarea has focus so
+  // it doesn't fight with native dialog/menu close behavior elsewhere.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const isMod = e.metaKey || e.ctrlKey;
+      if (isMod && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        textareaRef.current?.focus();
+        return;
+      }
+      if (e.key === "Escape") {
+        const ta = textareaRef.current;
+        if (ta && document.activeElement === ta) {
+          if (ta.value.length > 0) {
+            e.preventDefault();
+            setInput("");
+          } else {
+            ta.blur();
+          }
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  async function copyAssistantMessage(id: string, content: string) {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageId(id);
+      window.setTimeout(() => {
+        setCopiedMessageId((curr) => (curr === id ? null : curr));
+      }, 1600);
+    } catch {
+      setError("Clipboard unavailable in this browser context.");
+    }
+  }
 
   // Fire-and-forget audit kickoff. Returns void on purpose: sendMessage must
   // not await this. The audit may take 10-30s and the user must be free to
@@ -1058,20 +1174,27 @@ export default function Home() {
   }
 
   const hasMessages = messages.length > 0;
+  const shouldReduceMotion = useReducedMotion();
+  const messageEnter = shouldReduceMotion
+    ? { opacity: 1, y: 0 }
+    : { opacity: 1, y: 0 };
+  const messageInitial = shouldReduceMotion
+    ? { opacity: 1, y: 0 }
+    : { opacity: 0, y: 16 };
 
   return (
     <div className="flex h-screen w-full flex-col bg-background text-foreground">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-[var(--border)] bg-background/80 px-4 py-3 backdrop-blur sm:px-6">
+      <header className="flex items-center justify-between border-b border-[var(--border)] bg-background/85 px-4 py-3 backdrop-blur-md sm:px-6">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
             <SparkIcon className="h-4 w-4" />
           </div>
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold tracking-tight">
+            <span className="font-serif text-[15px] tracking-tight">
               Hallucination Audit Trail
             </span>
-            <span className="text-[11px] text-[var(--foreground-muted)]">
+            <span className="text-[11px] tracking-wide text-[var(--foreground-muted)]">
               Multi-agent verifier
             </span>
           </div>
@@ -1131,19 +1254,31 @@ export default function Home() {
             )}
           </div>
 
-          <button
+          <motion.button
             type="button"
             onClick={toggleTheme}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+            title={`Switch to ${isDark ? "light" : "dark"} mode`}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+            whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
           >
-            {theme === "dark" ? (
-              <SunIcon className="h-4 w-4" />
-            ) : (
-              <MoonIcon className="h-4 w-4" />
-            )}
-          </button>
+            {/*
+              Hold the icon back until next-themes hydrates so we don't render
+              the wrong glyph (or trigger a hydration warning) for users on
+              the non-default OS preference. The wrapper keeps the button
+              size stable so layout doesn't jitter on mount.
+            */}
+            <span className="flex h-4 w-4 items-center justify-center">
+              {themeMounted ? (
+                isDark ? (
+                  <SunIcon className="h-4 w-4" />
+                ) : (
+                  <MoonIcon className="h-4 w-4" />
+                )
+              ) : null}
+            </span>
+          </motion.button>
         </div>
       </header>
 
@@ -1187,61 +1322,127 @@ export default function Home() {
       {/* Conversation / welcome */}
       <main
         ref={scrollRef}
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(201,100,66,0.06),transparent_42%)] dark:bg-[radial-gradient(circle_at_top,rgba(217,119,87,0.07),transparent_45%)]"
       >
-        {!hasMessages ? (
-          <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-6 text-center">
-            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm">
-              <SparkIcon className="h-6 w-6" />
-            </div>
-            <h2 className="mb-2 text-3xl font-serif tracking-tight text-[var(--foreground)] sm:text-4xl">
-              How can I help you today?
-            </h2>
-            <p className="mb-8 max-w-md text-sm text-[var(--foreground-muted)]">
-              Ask anything. Every assistant reply is fact-checked by three
-              independent verifier agents.
-            </p>
+        <AnimatePresence mode="wait" initial={false}>
+          {!hasMessages ? (
+            <motion.div
+              key="welcome"
+              initial={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
+              animate={messageEnter}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -14 }}
+              transition={{ duration: 0.28, ease: "easeOut" }}
+              className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-6 text-center"
+            >
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm">
+                <SparkIcon className="h-6 w-6" />
+              </div>
+              <h2 className="mb-2 text-3xl font-serif tracking-tight text-[var(--foreground)] sm:text-4xl">
+                How can I help you today?
+              </h2>
+              <p className="mb-8 max-w-md text-[14px] leading-relaxed text-[var(--foreground-muted)]">
+                Ask anything. Every assistant reply is fact-checked by three
+                independent verifier agents.
+              </p>
 
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-              {[
-                "Summarize the findings of Johnson et al. 2021 on intermittent fasting",
-                "Who won the 2023 Nobel Prize in Physics, and for what?",
-                "What is the population of Lisbon as of 2024?",
-                "Explain the Riemann hypothesis in plain English",
-              ].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => sendMessage(suggestion)}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm text-[var(--foreground)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
+              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+                {[
+                  "Summarize the findings of Johnson et al. 2021 on intermittent fasting",
+                  "Who won the 2023 Nobel Prize in Physics, and for what?",
+                  "What is the population of Lisbon as of 2024?",
+                  "Explain the Riemann hypothesis in plain English",
+                ].map((suggestion) => (
+                  <motion.button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => sendMessage(suggestion)}
+                    className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]"
+                    whileHover={shouldReduceMotion ? undefined : { y: -1.5 }}
+                    whileTap={shouldReduceMotion ? undefined : { scale: 0.995 }}
+                  >
+                    {suggestion}
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="thread"
+              initial={shouldReduceMotion ? undefined : { opacity: 0, y: 12 }}
+              animate={messageEnter}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6"
+            >
             {messages.map((m) =>
               m.role === "user" ? (
-                <div key={m.id} className="flex justify-end">
-                  <div className="max-w-[85%] rounded-2xl bg-[var(--user-bubble)] px-4 py-3 text-[15px] leading-relaxed text-[var(--foreground)]">
+                <motion.div
+                  key={m.id}
+                  initial={messageInitial}
+                  animate={messageEnter}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="flex justify-end"
+                >
+                  <div
+                    className="group max-w-[85%] rounded-2xl bg-[var(--user-bubble)] px-4 py-3 text-[15px] leading-relaxed text-[var(--foreground)]"
+                    title={new Date(m.timestamp).toLocaleString()}
+                  >
                     <div className="whitespace-pre-wrap break-words">
                       {m.content}
                     </div>
+                    <div className="mt-1 text-right text-[10px] text-[var(--foreground-muted)] opacity-0 transition-opacity group-hover:opacity-100">
+                      {formatTime(m.timestamp)}
+                    </div>
                   </div>
-                </div>
+                </motion.div>
               ) : (
-                <div key={m.id} className="flex gap-3">
+                <motion.div
+                  key={m.id}
+                  initial={messageInitial}
+                  animate={messageEnter}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  className="flex gap-3"
+                >
                   <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
                     <SparkIcon className="h-3.5 w-3.5" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    {m.provider && (
-                      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]">
-                        {m.provider} · {m.model}
-                      </div>
-                    )}
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      {m.provider ? (
+                        <div
+                          className="text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]"
+                          title={new Date(m.timestamp).toLocaleString()}
+                        >
+                          {m.provider} · {m.model}
+                          <span className="ml-1.5 normal-case opacity-70">
+                            · {formatTime(m.timestamp)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span />
+                      )}
+                      <motion.button
+                        type="button"
+                        onClick={() => copyAssistantMessage(m.id, m.content)}
+                        className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/35 hover:text-[var(--foreground)]"
+                        whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+                        whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
+                        aria-label="Copy assistant response"
+                        title="Copy response"
+                      >
+                        {copiedMessageId === m.id ? (
+                          <>
+                            <CheckIcon className="h-3.5 w-3.5" />
+                            <span>Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <CopyIcon className="h-3.5 w-3.5" />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </motion.button>
+                    </div>
                     {m.regenerates_message_id && (
                       <BeforeAfterDiff
                         before={{
@@ -1269,12 +1470,19 @@ export default function Home() {
                       dehallucError={dehallucErrors[m.id]}
                     />
                   </div>
-                </div>
+                </motion.div>
               )
             )}
 
-            {pending && (
-              <div className="flex gap-3">
+            <AnimatePresence>
+              {pending && (
+                <motion.div
+                  initial={messageInitial}
+                  animate={messageEnter}
+                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="flex gap-3"
+                >
                 <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
                   <SparkIcon className="h-3.5 w-3.5" />
                 </div>
@@ -1283,20 +1491,30 @@ export default function Home() {
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.15s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)]" />
                 </div>
-              </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {error && (
-              <div className="rounded-xl border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
-                {error}
-              </div>
-            )}
-          </div>
-        )}
+            <AnimatePresence>
+              {error && (
+                <motion.div
+                  initial={shouldReduceMotion ? undefined : { opacity: 0, y: 8 }}
+                  animate={messageEnter}
+                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                  className="rounded-xl border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+                >
+                  {error}
+                </motion.div>
+              )}
+            </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Composer */}
-      <div className="border-t border-[var(--border)] bg-background px-4 pb-4 pt-3 sm:px-6">
+      <div className="border-t border-[var(--border)] bg-background/90 px-4 pb-4 pt-3 backdrop-blur sm:px-6">
         <form
           onSubmit={handleSubmit}
           className="mx-auto w-full max-w-3xl"
@@ -1314,51 +1532,98 @@ export default function Home() {
               Demo:
             </span>
             {DEMO_PROMPTS.map((demo) => (
-              <button
+              <motion.button
                 key={demo.label}
                 type="button"
                 onClick={() => loadDemoPrompt(demo.prompt)}
                 disabled={pending}
                 title={demo.prompt}
                 className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
               >
                 {demo.label}
-              </button>
+              </motion.button>
             ))}
           </div>
-          <div className="group relative flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-sm transition focus-within:border-[var(--accent)]/50 focus-within:shadow-md">
+          <div className="group relative flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-[0_1px_0_rgba(0,0,0,0.04)] transition focus-within:border-[var(--accent)]/50 focus-within:shadow-lg">
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Reply to Hallucination Audit…"
+              placeholder={
+                hasMessages
+                  ? "Reply to Hallucination Audit…"
+                  : "Ask anything — ⌘/Ctrl+K to jump here anytime"
+              }
               rows={1}
               disabled={pending}
-              className="max-h-60 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-6 text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] focus:outline-none disabled:opacity-60"
+              aria-label="Message composer"
+              className="max-h-60 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-[1.6] text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] focus:outline-none disabled:opacity-60"
             />
-            <button
+            <motion.button
               type="submit"
               disabled={pending || !input.trim()}
               aria-label="Send message"
               className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
+              whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
             >
               <SendIcon className="h-4 w-4" />
-            </button>
+            </motion.button>
           </div>
-          <p className="mt-2 text-center text-[11px] text-[var(--foreground-muted)]">
-            Responses are audited by three independent verifier agents. Press{" "}
-            <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-              Enter
-            </kbd>{" "}
-            to send,{" "}
-            <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-              Shift+Enter
-            </kbd>{" "}
-            for newline.
+          <p className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[11px] text-[var(--foreground-muted)]">
+            <span>Audited by three verifier agents.</span>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                Enter
+              </kbd>
+              send
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                Shift+Enter
+              </kbd>
+              newline
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                ⌘/Ctrl+K
+              </kbd>
+              focus
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                Esc
+              </kbd>
+              clear
+            </span>
           </p>
         </form>
       </div>
+
+      <AnimatePresence>
+        {!isAtBottom && hasMessages && (
+          <motion.button
+            type="button"
+            initial={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
+            animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+            exit={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            onClick={() => {
+              stickyBottomRef.current = true;
+              setIsAtBottom(true);
+              scrollToBottom("smooth");
+            }}
+            className="fixed bottom-28 right-4 z-30 inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--foreground)] shadow-lg sm:right-6"
+            aria-label="Jump to latest message"
+          >
+            <ArrowDownIcon className="h-3.5 w-3.5" />
+            <span>Latest</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       <DehallucinateModal
         open={dehallucinateModal.open}

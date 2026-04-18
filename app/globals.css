@@ -36,7 +36,8 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-user-bubble: var(--user-bubble);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-source-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
@@ -48,11 +49,31 @@ body {
 
 body {
   font-family: var(--font-sans);
+  line-height: 1.5;
+  letter-spacing: 0.003em;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/*
+ * Accessible focus ring tied to the brand accent. We rely on :focus-visible
+ * (not :focus) so mouse users don't get rings on click — only keyboard
+ * navigation and assistive tech do. Buttons that already opt out of the
+ * default outline via Tailwind get this back automatically.
+ */
+:where(button, a, [role="button"], select, summary):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+textarea:focus-visible,
+input:focus-visible {
+  outline: none;
 }
 
 /* Subtle, claude-style scrollbar */
