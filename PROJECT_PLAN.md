@@ -92,14 +92,14 @@ Goal: audit results render alongside chat messages, color-coded, expandable.
 
 | # | Task | Status |
 |---|---|---|
-| 3.1 | After assistant response lands, client fires `/api/audit` asynchronously (don't block the chat UI). | ☐ |
-| 3.2 | Store audits in client state keyed by `message_id`. | ☐ |
-| 3.3 | Below each assistant message, render a claims panel: one row per claim. | ☐ |
-| 3.4 | Color-code by verdict: green / yellow / orange / red. Show confidence as a percentage. | ☐ |
-| 3.5 | If `agents_disagreed`, show a ⚠ badge. | ☐ |
-| 3.6 | Click a claim to expand: show per-agent verdicts, reasoning, and source links. | ☐ |
-| 3.7 | Show a summary bar per message: "3 verified, 1 unverified, 2 hallucinations". | ☐ |
-| 3.8 | **Commit: "audit UI wired up with expandable claim breakdowns"** | ☐ |
+| 3.1 | After assistant response lands, client fires `/api/audit` asynchronously (don't block the chat UI). | ✅ `requestAudit(id, content)` in `app/page.tsx` is fire-and-forget — `sendMessage` calls it without `await` right after the assistant `setMessages`, so the textarea unlocks while the audit runs. Verified live: sent message N+1 while message N's audit was still in flight; chat stayed responsive. |
+| 3.2 | Store audits in client state keyed by `message_id`. | ✅ Three separate maps per ARCHITECTURE.md §7: `audits: Record<string, MessageAudit>`, `pendingAudits: Set<string>`, `auditErrors: Record<string, string>`. Mutually exclusive states; functional setState updates produce new Set/Record instances so React diffs cleanly. |
+| 3.3 | Below each assistant message, render a claims panel: one row per claim. | ✅ `<AuditPanel>` mounts under every assistant message; resolves to `<AuditSkeleton>` (in flight), `<AuditError>` (failed), `<AuditEmpty>` (zero verifiable claims — distinct from "still loading"), or a list of `<ClaimRow>`s. |
+| 3.4 | Color-code by verdict: green / yellow / orange / red. Show confidence as a percentage. | ✅ `VERDICT_STYLES` map: emerald / amber / orange / rose, with both light and dark mode tints. Each row has a 4px left border stripe + tinted bg + colored verdict pill. Confidence rendered as `formatConfidence` (1 decimal place, clamped to [0,1]). Avoided the brand `--accent` token (also orange) to prevent collision with `contradicted`. |
+| 3.5 | If `agents_disagreed`, show a ⚠ badge. | ✅ Amber pill "⚠ Agents disagreed" placed adjacent to the verdict label inside the row header. `title` attribute reads "Agents disagreed — click to see per-agent breakdown". Verified on Tesla (badge shown) vs Eiffel Tower (no badge). |
+| 3.6 | Click a claim to expand: show per-agent verdicts, reasoning, and source links. | ✅ Header is a `<button aria-expanded>` with a chevron that rotates 180° (transition-transform). Local `useState<Set<claim_id>>` in `AuditPanel` allows multiple rows expanded simultaneously. Details panel renders below the header (sibling, not nested in the button — keeps source `<a>` links out of `<button>`). Shows original sentence (italic muted), then per-agent: role label, verdict pill + confidence, full untruncated reasoning, sources as `<a target="_blank" rel="noopener noreferrer">` with domain as link text and page title as subtitle + `title` attr. Empty source list renders "No sources" italic muted, never collapses. |
+| 3.7 | Show a summary bar per message: "3 verified, 1 unverified, 2 hallucinations". | ✅ `<SummaryBar>` above the claim rows. Iterates `SUMMARY_CATEGORIES` in fixed order, skips zero-count entries, renders each as a verdict-colored pill with `·` separators. Reuses `VERDICT_STYLES.pill` so colors echo the rows. Verified on the 3-claim test: "1 VERIFIED · 1 CONTRADICTED · 1 LIKELY HALLUCINATION" with `unverified_plausible=0` correctly hidden. |
+| 3.8 | **Commit: "audit UI wired up with expandable claim breakdowns"** | ✅ pending hash record. |
 
 **Exit criterion:** send a message that will hallucinate (e.g., "Tell me about the 2019 Anthropic paper on recursive self-improvement"). See the audit panel populate. Click a red claim, see the 3 agents' reasoning.
 

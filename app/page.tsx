@@ -2,11 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import type {
+  AgentReport,
+  AgentRole,
+  AuditRequestBody,
   ChatMessage,
   ChatModel,
   ChatRequestBody,
   ChatResponseBody,
+  ClaimAudit,
+  MessageAudit,
   Provider,
+  Verdict,
 } from "@/types";
 
 /**
@@ -33,6 +39,364 @@ function makeUserMessage(content: string): ChatMessage {
     content,
     timestamp: Date.now(),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Verdict presentation
+//
+// Color coding for the audit panel (PROJECT_PLAN.md task 3.4). Each verdict
+// gets:
+//   - a left border stripe (the eye-catching color)
+//   - a tinted background (muted; legible in both themes)
+//   - a label color used inside the verdict pill
+//   - a short human label
+// We deliberately use Tailwind palette utilities rather than the brand CSS
+// variables, because the brand accent is already orange and would collide
+// with the "contradicted" verdict.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface VerdictStyle {
+  label: string;
+  border: string;
+  bg: string;
+  pill: string;
+}
+
+const VERDICT_STYLES: Record<Verdict, VerdictStyle> = {
+  verified: {
+    label: "Verified",
+    border: "border-l-emerald-500",
+    bg: "bg-emerald-50/70 dark:bg-emerald-950/30",
+    pill: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200",
+  },
+  unverified_plausible: {
+    label: "Unverified, plausible",
+    border: "border-l-amber-500",
+    bg: "bg-amber-50/70 dark:bg-amber-950/30",
+    pill: "bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200",
+  },
+  contradicted: {
+    label: "Contradicted",
+    border: "border-l-orange-500",
+    bg: "bg-orange-50/70 dark:bg-orange-950/30",
+    pill: "bg-orange-100 text-orange-900 dark:bg-orange-900/50 dark:text-orange-200",
+  },
+  likely_hallucination: {
+    label: "Likely hallucination",
+    border: "border-l-rose-500",
+    bg: "bg-rose-50/70 dark:bg-rose-950/30",
+    pill: "bg-rose-100 text-rose-900 dark:bg-rose-900/50 dark:text-rose-200",
+  },
+};
+
+function formatConfidence(c: number): string {
+  // 0..1 → "0.0%" .. "100.0%", capped to one decimal place.
+  const pct = Math.max(0, Math.min(1, c)) * 100;
+  return `${pct.toFixed(1)}%`;
+}
+
+// Display labels for the four summary-bar categories (PROJECT_PLAN.md task
+// 3.7). Order matches the spec example "verified · unverified · …" — we
+// iterate this array so a row always appears in the same position regardless
+// of which counts happen to be non-zero in a given audit.
+const SUMMARY_CATEGORIES: {
+  verdict: Verdict;
+  field: keyof MessageAudit["summary"];
+  singular: string;
+  plural: string;
+}[] = [
+  { verdict: "verified", field: "verified", singular: "verified", plural: "verified" },
+  { verdict: "unverified_plausible", field: "unverified_plausible", singular: "unverified", plural: "unverified" },
+  { verdict: "contradicted", field: "contradicted", singular: "contradicted", plural: "contradicted" },
+  { verdict: "likely_hallucination", field: "likely_hallucination", singular: "likely hallucination", plural: "likely hallucinations" },
+];
+
+const AGENT_ROLE_LABEL: Record<AgentRole, string> = {
+  prosecutor: "Prosecutor",
+  defender: "Defender",
+  literalist: "Literalist",
+};
+
+function ChevronIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit panel components (PROJECT_PLAN.md tasks 3.3–3.7)
+//
+// Layered rendering:
+//   AuditPanel   – per-message container; resolves the loading/error/data
+//                  state and owns the local "expanded claim ids" set (3.6).
+//   SummaryBar   – one-line count of verdict categories above the rows (3.7).
+//   ClaimRow     – one card per claim. Header is a button that toggles
+//                  expansion; details panel renders below when open (3.6).
+//   AgentSection – per-agent breakdown inside an expanded row (3.6).
+//
+// Expansion state is intentionally local to AuditPanel: it does not persist
+// across audit refetches or live in the App-level state map. If a future
+// re-audit replaces the MessageAudit with new claim ids, stale ids in the set
+// simply stop matching anything and become inert.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AuditSkeleton() {
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--foreground-muted)]">
+      <span className="flex items-center gap-1">
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)]" />
+      </span>
+      <span>Auditing claims…</span>
+    </div>
+  );
+}
+
+function AuditError({ message }: { message: string }) {
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--foreground-muted)]">
+      <span aria-hidden="true">⚠</span>
+      <span>
+        Audit unavailable
+        <span className="ml-1 text-[var(--foreground-muted)] opacity-70">
+          ({message})
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function AuditEmpty() {
+  return (
+    <div className="mt-3 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--foreground-muted)]">
+      No verifiable claims found in this response.
+    </div>
+  );
+}
+
+function SummaryBar({ summary }: { summary: MessageAudit["summary"] }) {
+  // Build the visible list once so we know whether to render at all and so
+  // the separator dots only appear *between* items.
+  const items = SUMMARY_CATEGORIES.flatMap((cat) => {
+    const count = summary[cat.field];
+    if (count <= 0) return [];
+    const noun = count === 1 ? cat.singular : cat.plural;
+    return [{ verdict: cat.verdict, text: `${count} ${noun}` }];
+  });
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--foreground-muted)]">
+      {items.map((item, i) => {
+        const style = VERDICT_STYLES[item.verdict];
+        return (
+          <span key={item.verdict} className="flex items-center gap-2">
+            {i > 0 && (
+              <span aria-hidden="true" className="text-[var(--foreground-muted)] opacity-50">
+                ·
+              </span>
+            )}
+            <span
+              className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style.pill}`}
+            >
+              {item.text}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function AgentSection({ report }: { report: AgentReport }) {
+  const style = VERDICT_STYLES[report.verdict];
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)]/60 px-2.5 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--foreground)]">
+          {AGENT_ROLE_LABEL[report.agent_role]}
+        </span>
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style.pill}`}
+        >
+          {style.label}
+        </span>
+        <span className="text-[11px] font-medium text-[var(--foreground-muted)]">
+          {formatConfidence(report.confidence)} confidence
+        </span>
+      </div>
+      <p className="whitespace-pre-wrap text-[12.5px] leading-snug text-[var(--foreground)]">
+        {report.reasoning}
+      </p>
+      <div className="mt-1 flex flex-col gap-1">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+          Sources
+        </span>
+        {report.sources.length === 0 ? (
+          <span className="text-[11px] text-[var(--foreground-muted)] italic">
+            No sources
+          </span>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {report.sources.map((src, i) => (
+              <li key={`${src.url}-${i}`} className="flex flex-col">
+                <a
+                  href={src.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={src.title}
+                  className="text-[12px] font-medium text-[var(--accent)] underline decoration-dotted underline-offset-2 hover:opacity-80"
+                >
+                  {src.domain || src.url}
+                </a>
+                {src.title && (
+                  <span className="line-clamp-2 text-[11px] text-[var(--foreground-muted)]">
+                    {src.title}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface ClaimRowProps {
+  ca: ClaimAudit;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+function ClaimRow({ ca, isExpanded, onToggle }: ClaimRowProps) {
+  const style = VERDICT_STYLES[ca.consensus_verdict];
+  return (
+    <div
+      className={`flex flex-col rounded-lg border border-[var(--border)] border-l-4 ${style.border} ${style.bg}`}
+    >
+      {/* Clickable header — the entire visible card responds to click. We keep
+          source links and other interactives OUT of this button to avoid
+          nesting interactive elements inside <button>. */}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+        className="flex w-full flex-col gap-2 px-3 py-2 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${style.pill}`}
+          >
+            {style.label}
+          </span>
+          <span className="text-[11px] font-medium text-[var(--foreground-muted)]">
+            {formatConfidence(ca.consensus_confidence)} confidence
+          </span>
+          {ca.agents_disagreed && (
+            <span
+              title="Agents disagreed — click to see per-agent breakdown"
+              className="inline-flex items-center gap-1 rounded-full border border-amber-500/60 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:border-amber-400/60 dark:bg-amber-900/40 dark:text-amber-200"
+            >
+              <span aria-hidden="true">⚠</span>
+              <span>Agents disagreed</span>
+            </span>
+          )}
+          <ChevronIcon
+            className={`ml-auto h-4 w-4 shrink-0 text-[var(--foreground-muted)] transition-transform duration-150 ${
+              isExpanded ? "rotate-180" : ""
+            }`}
+          />
+        </div>
+        <p
+          className={`text-[13px] leading-snug text-[var(--foreground)] ${
+            isExpanded ? "" : "line-clamp-3"
+          }`}
+        >
+          {ca.claim.text}
+        </p>
+      </button>
+
+      {isExpanded && (
+        <div className="flex flex-col gap-2 border-t border-[var(--border)]/70 px-3 py-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+              Original sentence
+            </span>
+            <p className="text-[12px] italic leading-snug text-[var(--foreground-muted)]">
+              “{ca.claim.sentence}”
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {ca.per_agent_reports.map((report) => (
+              <AgentSection key={report.agent_role} report={report} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface AuditPanelProps {
+  messageId: string;
+  isPending: boolean;
+  audit: MessageAudit | undefined;
+  errorMessage: string | undefined;
+}
+
+function AuditPanel({
+  isPending,
+  audit,
+  errorMessage,
+}: AuditPanelProps) {
+  // Local expansion state — see header comment block above. A Set keyed by
+  // claim id lets multiple rows be open simultaneously (per spec test 3).
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
+  function toggleExpanded(claimId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(claimId)) next.delete(claimId);
+      else next.add(claimId);
+      return next;
+    });
+  }
+
+  // Render priority: pending → error → audit (which may be empty).
+  // We prefer "still loading" over "failed" so a stale error from a prior
+  // attempt never appears alongside a fresh in-flight audit.
+  if (isPending) return <AuditSkeleton />;
+  if (errorMessage) return <AuditError message={errorMessage} />;
+  if (!audit) return null;
+  if (audit.claims.length === 0) return <AuditEmpty />;
+
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <SummaryBar summary={audit.summary} />
+      {audit.claims.map((ca) => (
+        <ClaimRow
+          key={ca.claim.id}
+          ca={ca}
+          isExpanded={expanded.has(ca.claim.id)}
+          onToggle={() => toggleExpanded(ca.claim.id)}
+        />
+      ))}
+    </div>
+  );
 }
 
 function SunIcon({ className = "" }: { className?: string }) {
@@ -111,6 +475,20 @@ export default function Home() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Audit state per ARCHITECTURE.md §7.
+  // Three mutually-exclusive states per assistant message id:
+  //   - id ∈ pendingAudits  → fetch in flight
+  //   - id ∈ audits         → audit complete (claims may be empty)
+  //   - id ∈ auditErrors    → fetch failed; show "audit unavailable"
+  // We track them as separate maps rather than a tagged union so that React's
+  // shallow comparison can update each independently without re-creating the
+  // whole audit panel state on every transition.
+  const [audits, setAudits] = useState<Record<string, MessageAudit>>({});
+  const [pendingAudits, setPendingAudits] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [auditErrors, setAuditErrors] = useState<Record<string, string>>({});
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -152,6 +530,57 @@ export default function Home() {
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, pending]);
 
+  // Fire-and-forget audit kickoff. Returns void on purpose: sendMessage must
+  // not await this. The audit may take 10-30s and the user must be free to
+  // send another chat turn while the previous one is still being audited.
+  function requestAudit(messageId: string, content: string) {
+    setPendingAudits((prev) => {
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+    // Clear any prior error/success so a re-audit (future feature) starts clean.
+    setAuditErrors((prev) => {
+      if (!(messageId in prev)) return prev;
+      const next = { ...prev };
+      delete next[messageId];
+      return next;
+    });
+
+    const body: AuditRequestBody = { message_id: messageId, content };
+
+    fetch("/api/audit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(errBody.error ?? `Audit request failed: ${res.status}`);
+        }
+        return (await res.json()) as MessageAudit;
+      })
+      .then((audit) => {
+        setAudits((prev) => ({ ...prev, [messageId]: audit }));
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Audit unavailable";
+        console.error("[audit] failed for", messageId, err);
+        setAuditErrors((prev) => ({ ...prev, [messageId]: msg }));
+      })
+      .finally(() => {
+        setPendingAudits((prev) => {
+          if (!prev.has(messageId)) return prev;
+          const next = new Set(prev);
+          next.delete(messageId);
+          return next;
+        });
+      });
+  }
+
   async function sendMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
@@ -180,6 +609,8 @@ export default function Home() {
       }
       const data = (await res.json()) as ChatResponseBody;
       setMessages((prev) => [...prev, data.message]);
+      // Kick off the audit but DO NOT await it — chat must stay unblocked.
+      requestAudit(data.message.id, data.message.content);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setError(msg);
@@ -354,6 +785,12 @@ export default function Home() {
                     <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-[var(--foreground)]">
                       {m.content}
                     </div>
+                    <AuditPanel
+                      messageId={m.id}
+                      isPending={pendingAudits.has(m.id)}
+                      audit={audits[m.id]}
+                      errorMessage={auditErrors[m.id]}
+                    />
                   </div>
                 </div>
               )
