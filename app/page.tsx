@@ -881,6 +881,65 @@ export default function Home() {
     setModel(PROVIDER_MODELS[next][0]);
   }
 
+  // ───────────────────────────────────────────────────────────────────
+  // /benchmark cross-link: consume `?prompt=` query parameter on mount.
+  //
+  // The /benchmark page's "Open in chat ↗" affordance navigates here
+  // with the chosen prompt URL-encoded into a ?prompt= query parameter.
+  // We:
+  //   1. Decode and prefill the composer input with that prompt.
+  //   2. Scroll the textarea into view so it's findable on long pages.
+  //   3. Do NOT steal focus if the user is already typing somewhere
+  //      else — checked via document.activeElement guard.
+  //   4. Do NOT auto-send. The user reviews and presses Send themselves.
+  //   5. Strip the query param from the URL (via history.replaceState)
+  //      so a back/forward navigation doesn't re-trigger this effect.
+  //
+  // We read from `window.location.search` directly rather than
+  // `useSearchParams` because the latter would force this whole client
+  // component to be wrapped in a Suspense boundary at build time
+  // (Next 16 / React 19 requirement). The query param is only ever
+  // meaningful on the client, so a window-side read is sufficient.
+  // ───────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const incoming = params.get("prompt");
+    if (!incoming) return;
+
+    setInput(incoming);
+
+    // Defer DOM reads/writes one frame so the textarea has been
+    // mounted and re-sized to fit the prefilled content.
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.scrollIntoView({ behavior: "smooth", block: "center" });
+      const active = document.activeElement;
+      const userIsTypingElsewhere =
+        active instanceof HTMLElement &&
+        active !== ta &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable);
+      if (!userIsTypingElsewhere) {
+        ta.focus({ preventScroll: true });
+        // Place cursor at end of the prefilled text so the user can
+        // append/edit immediately.
+        const len = ta.value.length;
+        ta.setSelectionRange(len, len);
+      }
+    });
+
+    // Strip the query param so future navigations don't re-trigger
+    // this. history.replaceState updates the URL in place without
+    // touching React Router state or pushing a new history entry.
+    params.delete("prompt");
+    const remaining = params.toString();
+    const cleanUrl =
+      window.location.pathname + (remaining ? `?${remaining}` : "");
+    window.history.replaceState(null, "", cleanUrl);
+  }, []);
+
   // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current;
@@ -1325,6 +1384,14 @@ export default function Home() {
             title="Open the document audit view"
           >
             Audit a document
+          </Link>
+          <Link
+            href="/benchmark"
+            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
+            aria-label="Open benchmark"
+            title="See the empirical 3-provider hallucination benchmark"
+          >
+            Benchmark
           </Link>
           <div className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-1 py-1 text-xs sm:flex">
             <select
