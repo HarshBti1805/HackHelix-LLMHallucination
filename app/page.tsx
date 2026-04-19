@@ -18,6 +18,7 @@ import type {
 import { ClaimList } from "@/components/audit/ClaimList";
 import { SummaryBar } from "@/components/audit/SummaryBar";
 import { failedClaimCount } from "@/components/audit/verdict";
+import { ComparisonSidebar } from "@/components/comparison/ComparisonSidebar";
 
 /**
  * Chat UI inspired by claude.ai's minimal aesthetic.
@@ -347,26 +348,30 @@ function DehallucinateButton({
   pending,
   failedCount,
 }: DehallucinateButtonProps) {
-  const label = pending
-    ? "Building prompt…"
-    : `Regenerate without hallucinations (${failedCount})`;
+  // Sized to undercut the SummaryBar verdict pills next to it. The
+  // button carries a border + ring affordance the pills don't, so even
+  // at a smaller intrinsic size it still reads as the actionable
+  // element in the row. Dropped to ~9px / px-1.5 / py-[1px] to bring
+  // total height under the pill — accent color does the rest of the
+  // signaling work.
+  const label = pending ? "Building…" : `Dehallucinate (${failedCount})`;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={pending}
-      title="Build a grounded prompt that quotes the failed claims and inlines the audit evidence"
-      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/50 bg-[var(--accent)]/10 px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)] transition hover:bg-[var(--accent)]/15 disabled:cursor-wait disabled:opacity-60"
-    >
-      {pending && (
-        <span aria-hidden="true" className="flex items-center gap-0.5">
-          <span className="h-1 w-1 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.3s]" />
-          <span className="h-1 w-1 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.15s]" />
-          <span className="h-1 w-1 animate-bounce rounded-full bg-[var(--accent)]" />
-        </span>
-      )}
-      <span>{label}</span>
-    </button>
+<button
+  type="button"
+  onClick={onClick}
+  disabled={pending}
+  title="Build a grounded prompt that quotes the failed claims and inlines the audit evidence"
+  className="rounded-full border border-[var(--accent)]/50 bg-[var(--accent)]/10 px-3 py-1 text-xs font-semibold tracking-wide leading-none text-[var(--accent)] transition hover:bg-[var(--accent)]/15 disabled:cursor-wait disabled:opacity-60"
+>
+  {pending && (
+    <span aria-hidden="true" className="flex items-center gap-1">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.3s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.15s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)]" />
+    </span>
+  )}
+  <span>{label}</span>
+</button>
   );
 }
 
@@ -602,6 +607,29 @@ function CheckIcon({ className = "" }: { className?: string }) {
   );
 }
 
+function CompareIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h7" />
+      <path d="M3 12h7" />
+      <path d="M3 18h7" />
+      <path d="M14 6h7" />
+      <path d="M14 12h7" />
+      <path d="M14 18h7" />
+      <path d="M11.5 4v16" strokeDasharray="2 2" />
+    </svg>
+  );
+}
+
 function ArrowDownIcon({ className = "" }: { className?: string }) {
   return (
     <svg
@@ -819,6 +847,27 @@ export default function Home() {
     {},
   );
 
+  // ───────────────────────────────────────────────────────────────────
+  // Comparison sidebar state.
+  //
+  // `comparisonOpen`   — whether the right-hand split panel is visible.
+  // `comparisonTarget` — which (before, after) message-id pair to diff.
+  //                      Always points at the LATEST regenerated
+  //                      assistant message in the thread, so the sidebar
+  //                      stays anchored to the most recent dehallucinate
+  //                      cycle even if the user keeps chatting.
+  // `autoOpenedFor`    — set of after-message ids we've already
+  //                      auto-opened the sidebar for. Without this, a
+  //                      user who closes the panel would have it pop
+  //                      back open the moment audits re-resolve.
+  // ───────────────────────────────────────────────────────────────────
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [comparisonTarget, setComparisonTarget] = useState<{
+    beforeId: string;
+    afterId: string;
+  } | null>(null);
+  const autoOpenedForRef = useRef<Set<string>>(new Set());
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const stickyBottomRef = useRef(true);
@@ -867,6 +916,45 @@ export default function Home() {
       scrollToBottom("smooth");
     }
   }, [messages, pending]);
+
+  // ───────────────────────────────────────────────────────────────────
+  // Auto-open the comparison sidebar when a regeneration's audit lands.
+  //
+  // We watch for the latest assistant message that carries a
+  // `regenerates_message_id`. Once BOTH its own audit (`after`) and the
+  // original message's audit (`before`) are finalized — present in
+  // `audits` or surfaced as an error — we set the comparison target
+  // and pop the panel open. The `autoOpenedForRef` guard ensures this
+  // only fires once per regeneration cycle, so a user who closes the
+  // panel doesn't get it forced back open.
+  //
+  // The effect intentionally does NOT clear `comparisonTarget` when the
+  // user closes the panel — keeping the target lets the header toggle
+  // re-open the same diff later. A new regeneration just overwrites it.
+  // ───────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let latestAfter: ChatMessage | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.regenerates_message_id) {
+        latestAfter = m;
+        break;
+      }
+    }
+    if (!latestAfter || !latestAfter.regenerates_message_id) return;
+
+    const afterId = latestAfter.id;
+    const beforeId = latestAfter.regenerates_message_id;
+
+    const beforeReady = Boolean(audits[beforeId] || auditErrors[beforeId]);
+    const afterReady = Boolean(audits[afterId] || auditErrors[afterId]);
+    if (!beforeReady || !afterReady) return;
+
+    if (autoOpenedForRef.current.has(afterId)) return;
+    autoOpenedForRef.current.add(afterId);
+    setComparisonTarget({ beforeId, afterId });
+    setComparisonOpen(true);
+  }, [messages, audits, auditErrors]);
 
   // Global keyboard shortcuts:
   //   Cmd/Ctrl+K  → focus the composer from anywhere
@@ -1175,6 +1263,18 @@ export default function Home() {
 
   const hasMessages = messages.length > 0;
   const shouldReduceMotion = useReducedMotion();
+
+  // Resolve the message objects backing the sidebar's before/after pair.
+  // Done at render time (cheap O(messages) twice) rather than memoized
+  // because `messages` is the same reference until something changes
+  // and React's reconciliation already short-circuits on equal props.
+  const beforeMessage = comparisonTarget
+    ? messages.find((m) => m.id === comparisonTarget.beforeId)
+    : undefined;
+  const afterMessage = comparisonTarget
+    ? messages.find((m) => m.id === comparisonTarget.afterId)
+    : undefined;
+  const canShowComparison = Boolean(comparisonTarget);
   const messageEnter = shouldReduceMotion
     ? { opacity: 1, y: 0 }
     : { opacity: 1, y: 0 };
@@ -1183,7 +1283,17 @@ export default function Home() {
     : { opacity: 0, y: 16 };
 
   return (
-    <div className="flex h-screen w-full flex-col bg-background text-foreground">
+    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+      {/*
+        Outer layout is now a horizontal flex container so the
+        ComparisonSidebar can dock to the right on lg+ viewports without
+        affecting the chat column's vertical layout. The chat column
+        keeps `min-w-0` so its `max-w-3xl` content shrinks gracefully
+        when the sidebar takes half the screen — without min-w-0 the
+        flex item would refuse to compress below its intrinsic
+        text-wrap minimum and trigger horizontal overflow.
+      */}
+      <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-[var(--border)] bg-background/85 px-4 py-3 backdrop-blur-md sm:px-6">
         <div className="flex items-center gap-2">
@@ -1252,6 +1362,41 @@ export default function Home() {
               </span>
             )}
           </div>
+
+          {/*
+            Comparison-sidebar toggle. Only rendered once the user has
+            triggered at least one regeneration (`canShowComparison`),
+            since otherwise there's nothing to compare. Hidden below
+            `lg` to match the sidebar's own breakpoint — the diff view
+            is a desktop affordance.
+          */}
+          {canShowComparison && (
+            <motion.button
+              type="button"
+              onClick={() => setComparisonOpen((v) => !v)}
+              aria-pressed={comparisonOpen}
+              aria-label={
+                comparisonOpen
+                  ? "Hide regeneration comparison"
+                  : "Show regeneration comparison"
+              }
+              title={
+                comparisonOpen
+                  ? "Hide regeneration comparison"
+                  : "Show regeneration comparison"
+              }
+              className={`hidden h-9 items-center gap-1.5 rounded-full border px-3 font-[family-name:var(--font-instrument)] text-[12px] tracking-wide transition lg:inline-flex ${
+                comparisonOpen
+                  ? "border-[var(--accent)]/60 bg-[var(--accent)]/10 text-[var(--accent)]"
+                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] hover:border-[var(--accent)]/40 hover:text-[var(--foreground)]"
+              }`}
+              whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
+              whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
+            >
+              <CompareIcon className="h-3.5 w-3.5" />
+              <span>{comparisonOpen ? "Hide diff" : "Show diff"}</span>
+            </motion.button>
+          )}
 
           <motion.button
             type="button"
@@ -1423,7 +1568,7 @@ export default function Home() {
                       <motion.button
                         type="button"
                         onClick={() => copyAssistantMessage(m.id, m.content)}
-                        className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/35 hover:text-[var(--foreground)]"
+                        className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-[2px] text-[4px] font-medium tracking-wide leading-none text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/35 hover:text-[var(--foreground)]"
                         whileHover={shouldReduceMotion ? undefined : { y: -1 }}
                         whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
                         aria-label="Copy assistant response"
@@ -1431,12 +1576,12 @@ export default function Home() {
                       >
                         {copiedMessageId === m.id ? (
                           <>
-                            <CheckIcon className="h-3.5 w-3.5" />
+                            <CheckIcon className="h-4 w-4" />
                             <span>Copied</span>
                           </>
                         ) : (
                           <>
-                            <CopyIcon className="h-3.5 w-3.5" />
+                              <CopyIcon className="h-4 w-4" />
                             <span>Copy</span>
                           </>
                         )}
@@ -1601,6 +1746,39 @@ export default function Home() {
           </p>
         </form>
       </div>
+      </div>
+      {/* End chat column. The ComparisonSidebar docks to its right on
+          lg+ viewports and is hidden below that breakpoint (the inline
+          `BeforeAfterDiff` already handles narrow widths). */}
+
+      <ComparisonSidebar
+        open={comparisonOpen && Boolean(comparisonTarget)}
+        beforeMessage={beforeMessage}
+        afterMessage={afterMessage}
+        beforeAudit={
+          comparisonTarget ? audits[comparisonTarget.beforeId] : undefined
+        }
+        afterAudit={
+          comparisonTarget ? audits[comparisonTarget.afterId] : undefined
+        }
+        beforePending={
+          comparisonTarget
+            ? pendingAudits.has(comparisonTarget.beforeId)
+            : false
+        }
+        afterPending={
+          comparisonTarget
+            ? pendingAudits.has(comparisonTarget.afterId)
+            : false
+        }
+        beforeError={
+          comparisonTarget ? auditErrors[comparisonTarget.beforeId] : undefined
+        }
+        afterError={
+          comparisonTarget ? auditErrors[comparisonTarget.afterId] : undefined
+        }
+        onClose={() => setComparisonOpen(false)}
+      />
 
       <AnimatePresence>
         {!isAtBottom && hasMessages && (
