@@ -1,6 +1,6 @@
 # ARCHITECTURE.md
 
-Detailed technical architecture for the Hallucination Audit Trail. This file is the source of truth for how the system is structured. Cursor and any future contributor should read this before making changes that cross module boundaries.
+Detailed technical architecture for Groundtruth (the multi-agent hallucination auditor). This file is the source of truth for how the system is structured. Cursor and any future contributor should read this before making changes that cross module boundaries.
 
 For the product description, see `README.md`. For rules about how to edit this codebase, see `CLAUDE.md`. For the build order, see `PROJECT_PLAN.md`.
 

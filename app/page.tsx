@@ -1191,10 +1191,10 @@ export default function Home() {
             <SparkIcon className="h-4 w-4" />
           </div>
           <div className="flex flex-col leading-tight">
-            <span className="font-serif text-[15px] tracking-tight">
-              Hallucination Audit Trail
+            <span className="font-serif text-[20px] tracking-tight">
+              <span className="italic">Groundtruth</span>
             </span>
-            <span className="text-[11px] tracking-wide text-[var(--foreground-muted)]">
+            <span className="font-[family-name:var(--font-instrument)] text-[12px] tracking-[0.08em] uppercase text-[var(--foreground-muted)]">
               Multi-agent verifier
             </span>
           </div>
@@ -1210,12 +1210,11 @@ export default function Home() {
           */}
           <Link
             href="/document"
-            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
+            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
             aria-label="Audit a document"
             title="Open the document audit view"
           >
-            <span aria-hidden="true">📄</span>
-            <span>Audit a document</span>
+            Audit a document
           </Link>
           <div className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-1 py-1 text-xs sm:flex">
             <select
@@ -1337,10 +1336,10 @@ export default function Home() {
               <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm">
                 <SparkIcon className="h-6 w-6" />
               </div>
-              <h2 className="mb-2 text-3xl font-serif tracking-tight text-[var(--foreground)] sm:text-4xl">
-                How can I help you today?
+              <h2 className="mb-3 font-serif text-4xl tracking-tight text-[var(--foreground)] sm:text-5xl">
+                How can I <span className="italic">help</span> you today?
               </h2>
-              <p className="mb-8 max-w-md text-[14px] leading-relaxed text-[var(--foreground-muted)]">
+              <p className="mb-8 max-w-md text-[16px] leading-relaxed text-[var(--foreground-muted)]">
                 Ask anything. Every assistant reply is fact-checked by three
                 independent verifier agents.
               </p>
@@ -1554,7 +1553,7 @@ export default function Home() {
               onKeyDown={handleKeyDown}
               placeholder={
                 hasMessages
-                  ? "Reply to Hallucination Audit…"
+                  ? "Reply to Groundtruth…"
                   : "Ask anything — ⌘/Ctrl+K to jump here anytime"
               }
               rows={1}

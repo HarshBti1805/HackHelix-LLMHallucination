@@ -1,6 +1,6 @@
 # PROJECT_PLAN.md
 
-Hour-by-hour plan for building the Hallucination Audit Trail in a 3-hour window using Cursor. Update the "Status" column as you go — it doubles as your changelog.
+Hour-by-hour plan for building Groundtruth (the multi-agent hallucination auditor) in a 3-hour window using Cursor. Update the "Status" column as you go — it doubles as your changelog.
 
 Stack is fixed: **Next.js 14 + TypeScript, OpenAI + Gemini (user-switchable chat), OpenAI for auditor, Tavily for search.** Don't change the stack mid-build.
 

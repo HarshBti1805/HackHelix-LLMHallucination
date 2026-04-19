@@ -1,6 +1,6 @@
 # IMPROVEMENTS.md
 
-Post-demo improvement phase. The core Hallucination Audit Trail is complete and committed. This document adds the two improvements that close the gap between the shipped chat prototype and the original problem statement, and that replace anecdotal provider-comparison with empirical measurement.
+Post-demo improvement phase. The core Groundtruth auditor is complete and committed. This document adds the two improvements that close the gap between the shipped chat prototype and the original problem statement, and that replace anecdotal provider-comparison with empirical measurement.
 
 Read `README.md`, `CLAUDE.md`, `ARCHITECTURE.md` before starting. The rules about prompt isolation, fixed-auditor design, and in-memory state still apply — none of them change in this phase.
 

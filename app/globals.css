@@ -36,9 +36,66 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-user-bubble: var(--user-bubble);
-  --font-sans: var(--font-source-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /*
+   * Typography stack.
+   *
+   * Default mappings (used by Tailwind's font-sans / font-serif / font-mono):
+   *   - font-sans  → Manrope, a workhorse humanist sans tuned for UI body
+   *   - font-serif → Instrument Serif, editorial display face for titles
+   *   - font-mono  → DM Mono, warmer than the previous Geist Mono
+   *
+   * Extra utilities (font-display, font-instrument, font-grotesk, etc.) are
+   * exposed so individual components can opt in to a different voice
+   * without overriding the base.
+   */
+  --font-sans:
+    var(--font-manrope), var(--font-instrument-sans), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-serif:
+    var(--font-instrument-serif), var(--font-libre-baskerville), ui-serif,
+    Georgia, serif;
+  --font-mono:
+    var(--font-dm-mono), var(--font-space-mono), ui-monospace, monospace;
+
+  --font-instrument: var(--font-instrument-sans), ui-sans-serif, sans-serif;
+  --font-instrument-serif:
+    var(--font-instrument-serif), ui-serif, Georgia, serif;
+  --font-display: var(--font-instrument-serif), ui-serif, Georgia, serif;
+  --font-playfair: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-baskerville:
+    var(--font-libre-baskerville), ui-serif, Georgia, serif;
+  --font-arvo: var(--font-arvo), ui-serif, Georgia, serif;
+
+  --font-grotesk: var(--font-space-grotesk), ui-sans-serif, sans-serif;
+  --font-manrope: var(--font-manrope), ui-sans-serif, sans-serif;
+  --font-avenir: var(--font-avenir-next), ui-sans-serif, sans-serif;
+  --font-tt: var(--font-tt-commons), ui-sans-serif, sans-serif;
+  --font-neue: var(--font-neue-machina), ui-sans-serif, sans-serif;
+  --font-akrobat: var(--font-akrobat), ui-sans-serif, sans-serif;
+  --font-syne: var(--font-syne), ui-sans-serif, sans-serif;
+  --font-poppins: var(--font-poppins), ui-sans-serif, sans-serif;
+  --font-raleway: var(--font-raleway), ui-sans-serif, sans-serif;
+  --font-montserrat: var(--font-montserrat), ui-sans-serif, sans-serif;
+  --font-josefin: var(--font-josefin), ui-sans-serif, sans-serif;
+  --font-violet: var(--font-violet-sans), ui-sans-serif, sans-serif;
+
+  --font-space-mono: var(--font-space-mono), ui-monospace, monospace;
+  --font-bogita: var(--font-bogita-mono), ui-monospace, monospace;
+
+  --font-broadway: var(--font-broadway), ui-serif, serif;
+  --font-vonique: var(--font-vonique), ui-serif, serif;
+}
+
+html {
+  /*
+   * Base size bump: most of the chat surface used to inherit 16px which
+   * felt cramped in long reading passages. 17px gives roughly a 1.063x
+   * uplift to every `text-sm` / `text-base` site-wide and pushes us
+   * toward a comfortable ~70 char measure when paired with our
+   * existing max-widths.
+   */
+  font-size: 17px;
 }
 
 html,
@@ -49,10 +106,44 @@ body {
 
 body {
   font-family: var(--font-sans);
-  line-height: 1.5;
-  letter-spacing: 0.003em;
+  font-feature-settings: "ss01", "cv01", "cv11";
+  line-height: 1.65;
+  letter-spacing: 0.005em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/*
+ * Headings adopt the editorial Instrument Serif voice by default. Tighter
+ * tracking + tighter line-height so display sizes don't sprawl. Components
+ * that want a different look can override with `font-sans` or `font-display`.
+ */
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  letter-spacing: -0.018em;
+  line-height: 1.15;
+}
+
+h4,
+h5,
+h6 {
+  font-family: var(--font-instrument), var(--font-sans);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+/*
+ * Form controls inherit the body sans rather than the UA default. Bumped
+ * size keeps inputs aligned with the larger root text scale.
+ */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+  font-size: inherit;
 }
 
 ::selection {

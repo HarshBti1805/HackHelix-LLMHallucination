@@ -1,6 +1,6 @@
-# Hallucination Audit Trail
+# Groundtruth
 
-A chat interface that fact-checks LLM responses in real time using a multi-agent verification pipeline. Every factual claim in an AI-generated response is traced back to a verifiable source, and the system produces an audit report distinguishing verified claims, unverified-but-plausible claims, and likely hallucinations — each with a confidence score derived from independent subagent consensus.
+Groundtruth is a chat interface that fact-checks LLM responses in real time using a multi-agent verification pipeline. Every factual claim in an AI-generated response is traced back to a verifiable source, and the system produces an audit report distinguishing verified claims, unverified-but-plausible claims, and likely hallucinations — each with a confidence score derived from independent subagent consensus.
 
 The user can switch the **chat model** between **OpenAI (GPT-4o)**, **Anthropic (Claude Haiku 4.5)**, and **Google (Gemini 2.5 Flash)** to compare which one hallucinates less on the same prompt. The **auditor** is held constant (OpenAI `gpt-4o-mini`) so the comparison measures the chat model's behavior, not auditor variance.
 

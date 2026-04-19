@@ -1,5 +1,5 @@
 /**
- * Shared type contracts for the Hallucination Audit Trail.
+ * Shared type contracts for Groundtruth (the multi-agent hallucination auditor).
  *
  * Single source of truth — every module that touches Claims, Verdicts, agent
  * reports, or audits MUST import from this file. Do not redefine these types

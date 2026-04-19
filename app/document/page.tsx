@@ -230,10 +230,10 @@ function DocumentInputCard({
     <section className="flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col">
-          <h1 className="text-base font-semibold tracking-tight">
-            Audit a document
+          <h1 className="font-serif text-2xl tracking-tight sm:text-[28px]">
+            Audit a <span className="italic">document</span>
           </h1>
-          <p className="text-[12px] text-[var(--foreground-muted)]">
+          <p className="text-[13.5px] leading-relaxed text-[var(--foreground-muted)]">
             Upload a <code>.txt</code> or <code>.md</code> file, or paste
             text. The auditor runs the same extract → multi-agent verify
             pipeline as the chat, capped at 25 claims per document.
