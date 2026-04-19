@@ -12,6 +12,29 @@ export interface DocumentDropzoneProps {
   pending: boolean;
   errorMessage: string | null;
   hasAudit: boolean;
+  /**
+   * Document-dehallucinate hook (additive — see `app/api/dehallucinate-document`
+   * and `components/document/RevisionsModal`).
+   *
+   * Three-prop set so the dropzone stays a passive renderer:
+   *   - `canDehallucinate`: shown only when the audit found at least one
+   *     contradicted / likely_hallucination claim. The dropzone has no
+   *     opinions about which verdicts qualify; the parent decides via
+   *     `hasFailedClaims`.
+   *   - `dehallucinatePending`: button shows a loading label and is
+   *     disabled while the LLM call is in flight, but the rest of the
+   *     page stays interactive (per spec, "don't block the rest of the
+   *     page").
+   *   - `onDehallucinate`: parent fires /api/dehallucinate-document and
+   *     opens the modal on success.
+   *
+   * All three are optional so the dropzone keeps working in any future
+   * surface (e.g. a hypothetical embed) that doesn't wire up
+   * dehallucination.
+   */
+  canDehallucinate?: boolean;
+  dehallucinatePending?: boolean;
+  onDehallucinate?: () => void;
 }
 
 /**
@@ -44,6 +67,9 @@ export function DocumentDropzone({
   pending,
   errorMessage,
   hasAudit,
+  canDehallucinate = false,
+  dehallucinatePending = false,
+  onDehallucinate,
 }: DocumentDropzoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -225,6 +251,19 @@ export function DocumentDropzone({
               className="rounded-full border border-[var(--border)] bg-background px-4 py-2 text-[13px] font-[family-name:var(--font-instrument)] tracking-wide text-[var(--foreground)] transition hover:bg-[var(--surface-muted)]"
             >
               Download JSON
+            </button>
+          )}
+          {hasAudit && canDehallucinate && onDehallucinate && (
+            <button
+              type="button"
+              onClick={onDehallucinate}
+              disabled={dehallucinatePending}
+              title="Ask the auditor to propose grounded replacement sentences for the claims it flagged."
+              className="rounded-full border border-[var(--accent)]/50 bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] px-4 py-2 text-[13px] font-[family-name:var(--font-instrument)] font-semibold tracking-wide text-[var(--foreground)] transition hover:bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {dehallucinatePending
+                ? "Drafting revisions…"
+                : "Dehallucinate document"}
             </button>
           )}
           <button

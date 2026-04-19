@@ -3,10 +3,13 @@
 import { useMemo, useState } from "react";
 import type {
   AuditDocumentRequestBody,
+  DehallucinateDocumentRequestBody,
   DocumentAudit,
+  DocumentRevisions,
 } from "@/types";
 import { ClaimList } from "@/components/audit/ClaimList";
 import { locateClaimSpans } from "@/components/audit/highlightSpans";
+import { failedClaimCount } from "@/components/audit/verdict";
 import { DocumentHero } from "@/components/document/DocumentHero";
 import { DocumentDropzone } from "@/components/document/DocumentDropzone";
 import { TrustScoreCard } from "@/components/document/TrustScoreCard";
@@ -14,6 +17,7 @@ import { AuditStatGrid } from "@/components/document/AuditStatGrid";
 import { VerdictDistribution } from "@/components/document/VerdictDistribution";
 import { AuditingProgress } from "@/components/document/AuditingProgress";
 import { SourceViewer } from "@/components/document/SourceViewer";
+import { RevisionsModal } from "@/components/document/RevisionsModal";
 
 /**
  * Dedicated document-audit report view (IMPROVEMENTS.md Phase A,
@@ -37,6 +41,22 @@ export default function DocumentAuditPage() {
   const [pending, setPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Document-dehallucinate state (additive — see RevisionsModal). Three
+  // pieces of state because the LLM call has three distinct lifecycle
+  // points the UI cares about:
+  //   - `dehallucPending`: button shows "Drafting revisions…" and is
+  //     disabled. The rest of the page stays interactive (per spec).
+  //   - `revisions`: when non-null, the modal is open. Clearing it back
+  //     to null both closes the modal and discards all accept/reject
+  //     state — that's intentional (CLAUDE.md: "Do not cache revisions
+  //     across sessions"). Re-opening requires a fresh API call.
+  //   - `dehallucError`: surfaced in the same error envelope as the
+  //     audit error, so failures from either path render identically
+  //     in the dropzone footer.
+  const [dehallucPending, setDehallucPending] = useState(false);
+  const [revisions, setRevisions] = useState<DocumentRevisions | null>(null);
+  const [dehallucError, setDehallucError] = useState<string | null>(null);
+
   // Dropping a fresh source resets any prior audit so the report and
   // the input stay coherent. Otherwise a user could swap in a new
   // document but still see the previous audit's highlighted spans.
@@ -45,11 +65,23 @@ export default function DocumentAuditPage() {
     setFilename(nextFilename);
     setAudit(null);
     setErrorMessage(null);
+    // Same reasoning for dehallucinate state: a new source invalidates
+    // any in-progress / completed revision review.
+    setRevisions(null);
+    setDehallucError(null);
   }
 
   function handleClearFile() {
     setSource("", "");
   }
+
+  // Show the dehallucinate button only when the audit found at least one
+  // contradicted / likely_hallucination claim. Computed from the summary
+  // (client-safe; the server-side `hasFailedClaims` in
+  // `lib/dehallucinate-document.ts` exists for the API route's use, but
+  // we can't import it from a client component because it transitively
+  // pulls in the OpenAI SDK and node:fs cache).
+  const canDehallucinate = audit ? failedClaimCount(audit) > 0 : false;
 
   async function handleRunAudit() {
     if (!text.trim()) {
@@ -92,6 +124,43 @@ export default function DocumentAuditPage() {
     }
   }
 
+  async function handleDehallucinate() {
+    if (!audit) return;
+    setDehallucPending(true);
+    setDehallucError(null);
+    try {
+      const body: DehallucinateDocumentRequestBody = {
+        sourceText: audit.source_text,
+        filename: audit.filename,
+        audit,
+      };
+      const res = await fetch("/api/dehallucinate-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(
+          payload.error ??
+            `dehallucinate-document responded ${res.status}`,
+        );
+      }
+      const data = (await res.json()) as DocumentRevisions;
+      setRevisions(data);
+    } catch (err) {
+      setDehallucError(
+        err instanceof Error
+          ? err.message
+          : "Unknown error drafting revisions.",
+      );
+    } finally {
+      setDehallucPending(false);
+    }
+  }
+
   function handleDownloadJson() {
     if (!audit) return;
     // Self-contained: the JSON includes `source_text` so re-opening this
@@ -122,14 +191,27 @@ export default function DocumentAuditPage() {
           onRunAudit={handleRunAudit}
           onDownloadJson={handleDownloadJson}
           pending={pending}
-          errorMessage={errorMessage}
+          // Surface either error in the dropzone footer — same envelope
+          // for both paths so the user has one place to look.
+          errorMessage={errorMessage ?? dehallucError}
           hasAudit={Boolean(audit)}
+          canDehallucinate={canDehallucinate}
+          dehallucinatePending={dehallucPending}
+          onDehallucinate={canDehallucinate ? handleDehallucinate : undefined}
         />
 
         {pending && <AuditingProgress />}
 
         {audit && !pending && <DocumentReport audit={audit} />}
       </main>
+
+      {revisions && audit && (
+        <RevisionsModal
+          audit={audit}
+          revisions={revisions}
+          onClose={() => setRevisions(null)}
+        />
+      )}
     </div>
   );
 }

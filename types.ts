@@ -180,6 +180,69 @@ export interface AuditDocumentRequestBody {
 
 export type AuditDocumentResponseBody = DocumentAudit;
 
+/**
+ * Document dehallucination shapes (see `lib/dehallucinate-document.ts` and
+ * `app/api/dehallucinate-document/route.ts`).
+ *
+ * Why a separate type from the chat dehallucinator (`DehallucinateRequestBody`
+ * → `{ suggested_prompt }`):
+ *
+ *   - The chat dehallucinator builds *one* prompt the user sends back through
+ *     /api/chat to regenerate the entire answer. That makes sense for a chat
+ *     turn — the user is still in conversation, the answer is short, and a
+ *     full re-ask is the natural unit.
+ *
+ *   - A document is not a conversation. The user has invested authorial
+ *     intent in surrounding paragraphs that the auditor judged just fine.
+ *     Re-prompting the model to "rewrite this document" would smear the
+ *     correct sentences along with the wrong ones and silently reshape the
+ *     author's voice. The whole point of the document path is *surgical*
+ *     correction: we only touch sentences carrying failed claims, leave
+ *     everything else byte-identical, and let the user accept/reject each
+ *     proposed fix.
+ *
+ * Hence `DocumentRevision` / `DocumentRevisions` rather than reusing the
+ * chat shape. The model is asked to act as a copy editor, not as a
+ * ghostwriter — see CLAUDE.md "Document dehallucination is surgical".
+ */
+export interface DocumentRevision {
+  /** Stable id of the originating ClaimAudit (so the UI can pair revisions
+   *  back to the audit row that produced them). */
+  claim_id: string;
+  /** Verbatim sentence from the source document that the audit flagged.
+   *  Used as the search needle when applying revisions to the source text
+   *  via the same first-occurrence-not-yet-replaced rule as
+   *  `locateClaimSpans`. */
+  original_sentence: string;
+  /** Either (a) a corrected factual statement supported by the gathered
+   *  evidence, or (b) an honest abstention sentence (e.g. "The source for
+   *  this statistic could not be verified."). NEVER a fabrication — see
+   *  `DEHALLUCINATOR_DOCUMENT_PROMPT` for the anti-fabrication clause. */
+  replacement_sentence: string;
+  /** One-line copy editor's note explaining why the replacement was chosen
+   *  (cited evidence, abstention, etc.). Surfaced in the modal. */
+  rationale: string;
+  /** The original failed verdict, preserved purely for display so the modal
+   *  can render the verdict pill alongside each revision card. */
+  verdict: Verdict;
+}
+
+export interface DocumentRevisions {
+  revisions: DocumentRevision[];
+  /** Failed claims the model could NOT produce a grounded replacement for —
+   *  surfaced honestly in the modal rather than silently dropped, and
+   *  rendered with the model's reason so the user understands why. */
+  unrevisable_claims: { claim_id: string; reason: string }[];
+}
+
+export interface DehallucinateDocumentRequestBody {
+  sourceText: string;
+  filename: string;
+  audit: DocumentAudit;
+}
+
+export type DehallucinateDocumentResponseBody = DocumentRevisions;
+
 // ---- Errors ----
 
 /**
