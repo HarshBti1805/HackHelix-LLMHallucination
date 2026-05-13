@@ -246,3 +246,15 @@ Three efficient-tier chat models — OpenAI `gpt-4o`, Anthropic `claude-haiku-4-
 - Precision/recall evaluation on a labeled set of seeded hallucinations
 - Persist audit logs for longitudinal comparison between providers
 - Per-claim surgical rewrite (fix one claim in place, leave the rest)
+
+
+## Troubleshooting
+
+**`npm run dev` fails with "module not found"**
+Delete `node_modules` and `package-lock.json`, then run `npm install` again. This usually resolves stale dependency cache issues after pulling changes from a different branch.
+
+**API key errors on startup**
+Confirm all four keys are set in `.env.local`: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`. The app fails fast if any are missing.
+
+**Tavily rate limits during heavy testing**
+The free tier allows 1,000 searches/month. If you hit the limit, the audit pipeline returns empty evidence sets and all claims fall through to `unverified_plausible`. Upgrade or wait for the monthly reset.
