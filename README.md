@@ -246,3 +246,20 @@ Three efficient-tier chat models — OpenAI `gpt-4o`, Anthropic `claude-haiku-4-
 - Precision/recall evaluation on a labeled set of seeded hallucinations
 - Persist audit logs for longitudinal comparison between providers
 - Per-claim surgical rewrite (fix one claim in place, leave the rest)
+
+
+
+## Troubleshooting
+
+Common failure modes and how to fix them. If something below doesn't match what you're seeing, check the terminal running `npm run dev` — every LLM and search call is logged with its raw error payload.
+
+### Setup
+
+**`Error: Missing required environment variable: OPENAI_API_KEY`** (or `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `TAVILY_API_KEY`)
+Copy `.env.example` to `.env.local` and fill all four keys. The app reads them at startup — restart `npm run dev` after editing `.env.local`.
+
+```bash
+cp .env.example .env.local
+# edit .env.local, then:
+npm run dev
+
