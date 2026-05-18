@@ -246,3 +246,6 @@ Three efficient-tier chat models — OpenAI `gpt-4o`, Anthropic `claude-haiku-4-
 - Precision/recall evaluation on a labeled set of seeded hallucinations
 - Persist audit logs for longitudinal comparison between providers
 - Per-claim surgical rewrite (fix one claim in place, leave the rest)
+
+
+LICESENSED UNDER MIT.
