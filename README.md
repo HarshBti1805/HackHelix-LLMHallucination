@@ -25,7 +25,7 @@ When hallucinations are detected, the system can generate a grounded "dehallucin
 
 ## Stack
 
-- **Next.js 14 + TypeScript** (App Router, single app, API routes for backend logic — not a monorepo)
+- **Next.js 16 + TypeScript** (App Router, single app, API routes for backend logic — not a monorepo)
 - **OpenAI SDK** (`openai`) — chat (user-selectable) + all auditor agents
 - **Anthropic SDK** (`@anthropic-ai/sdk`) — chat (user-selectable)
 - **Google Generative AI SDK** (`@google/generative-ai`) — chat (user-selectable)
