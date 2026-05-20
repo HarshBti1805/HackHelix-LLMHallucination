@@ -6,7 +6,7 @@ Guidance for Claude / Cursor when working in this repository. Read this before m
 
 ## What this project is
 
-A single Next.js 14 + TypeScript app (App Router) that implements a multi-agent hallucination auditor for LLM chat responses. See `README.md` for the product description, `ARCHITECTURE.md` for the full technical design (data flow, type contracts, module specs, API schemas), and `PROJECT_PLAN.md` for the 3-hour build schedule.
+A single Next.js 16 + TypeScript app (App Router) that implements a multi-agent hallucination auditor for LLM chat responses. See `README.md` for the product description, `ARCHITECTURE.md` for the full technical design (data flow, type contracts, module specs, API schemas), and `PROJECT_PLAN.md` for the 3-hour build schedule.
 
 **Before making any change that crosses module boundaries or touches type contracts, read the relevant section of `ARCHITECTURE.md`.**
 
