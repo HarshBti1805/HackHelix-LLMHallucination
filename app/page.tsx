@@ -356,22 +356,22 @@ function DehallucinateButton({
   // signaling work.
   const label = pending ? "Building…" : `Dehallucinate (${failedCount})`;
   return (
-<button
-  type="button"
-  onClick={onClick}
-  disabled={pending}
-  title="Build a grounded prompt that quotes the failed claims and inlines the audit evidence"
-  className="rounded-full border border-[var(--accent)]/50 bg-[var(--accent)]/10 px-3 py-1 text-xs font-semibold tracking-wide leading-none text-[var(--accent)] transition hover:bg-[var(--accent)]/15 disabled:cursor-wait disabled:opacity-60"
->
-  {pending && (
-    <span aria-hidden="true" className="flex items-center gap-1">
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.3s]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.15s]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)]" />
-    </span>
-  )}
-  <span>{label}</span>
-</button>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending}
+      title="Build a grounded prompt that quotes the failed claims and inlines the audit evidence"
+      className="rounded-full border border-[var(--accent)]/50 bg-[var(--accent)]/10 px-3 py-1 text-xs font-semibold tracking-wide leading-none text-[var(--accent)] transition hover:bg-[var(--accent)]/15 disabled:cursor-wait disabled:opacity-60"
+    >
+      {pending && (
+        <span aria-hidden="true" className="flex items-center gap-1">
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)]" />
+        </span>
+      )}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -1353,384 +1353,383 @@ export default function Home() {
         text-wrap minimum and trigger horizontal overflow.
       */}
       <div className="flex h-full min-w-0 flex-1 flex-col">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-[var(--border)] bg-background/85 px-4 py-3 backdrop-blur-md sm:px-6">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
-            <SparkIcon className="h-4 w-4" />
+        {/* Header */}
+        <header className="flex items-center justify-between border-b border-[var(--border)] bg-background/85 px-4 py-3 backdrop-blur-md sm:px-6">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
+              <SparkIcon className="h-4 w-4" />
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="font-serif text-[20px] tracking-tight">
+                <span className="italic">Groundtruth_V2</span>
+              </span>
+              <span className="font-[family-name:var(--font-instrument)] text-[12px] tracking-[0.08em] uppercase text-[var(--foreground-muted)]">
+                Multi-agent verifier
+              </span>
+            </div>
           </div>
-          <div className="flex flex-col leading-tight">
-            <span className="font-serif text-[20px] tracking-tight">
-              <span className="italic">Groundtruth</span>
-            </span>
-            <span className="font-[family-name:var(--font-instrument)] text-[12px] tracking-[0.08em] uppercase text-[var(--foreground-muted)]">
-              Multi-agent verifier
-            </span>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {/*
+          <div className="flex items-center gap-2">
+            {/*
             Cross-link to the dedicated /document audit view (IMPROVEMENTS.md
             Phase A task A.10). Sits next to the provider switcher so it's
             findable but visually subordinate to the chat composer — the
             chat is still the primary surface; document audit is a
             separate workflow a user opts into deliberately.
           */}
-          <Link
-            href="/document"
-            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
-            aria-label="Audit a document"
-            title="Open the document audit view"
-          >
-            Audit a document
-          </Link>
-          <Link
-            href="/benchmark"
-            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
-            aria-label="Open benchmark"
-            title="See the empirical 3-provider hallucination benchmark"
-          >
-            Benchmark
-          </Link>
-          <div className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-1 py-1 text-xs sm:flex">
-            <select
-              value={provider}
-              onChange={(e) => changeProvider(e.target.value as Provider)}
-              className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
-              aria-label="Provider"
+            <Link
+              href="/document"
+              className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
+              aria-label="Audit a document"
+              title="Open the document audit view"
             >
-              {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
-                <option key={p} value={p} className="bg-[var(--surface)]">
-                  {PROVIDER_LABEL[p]}
-                </option>
-              ))}
-            </select>
-            <span className="text-[var(--foreground-muted)]">/</span>
-            {PROVIDER_MODELS[provider].length > 1 ? (
+              Audit a document
+            </Link>
+            <Link
+              href="/benchmark"
+              className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
+              aria-label="Open benchmark"
+              title="See the empirical 3-provider hallucination benchmark"
+            >
+              Benchmark
+            </Link>
+            <div className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-1 py-1 text-xs sm:flex">
               <select
-                value={model}
-                onChange={(e) => setModel(e.target.value as ChatModel)}
+                value={provider}
+                onChange={(e) => changeProvider(e.target.value as Provider)}
                 className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
-                aria-label="Model"
+                aria-label="Provider"
               >
-                {PROVIDER_MODELS[provider].map((m) => (
-                  <option key={m} value={m} className="bg-[var(--surface)]">
-                    {m}
+                {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
+                  <option key={p} value={p} className="bg-[var(--surface)]">
+                    {PROVIDER_LABEL[p]}
                   </option>
                 ))}
               </select>
-            ) : (
-              <span
-                className="rounded-full px-2 py-1 text-xs text-[var(--foreground-muted)]"
-                aria-label="Model"
-              >
-                {PROVIDER_MODELS[provider][0]}
-              </span>
-            )}
-          </div>
+              <span className="text-[var(--foreground-muted)]">/</span>
+              {PROVIDER_MODELS[provider].length > 1 ? (
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value as ChatModel)}
+                  className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
+                  aria-label="Model"
+                >
+                  {PROVIDER_MODELS[provider].map((m) => (
+                    <option key={m} value={m} className="bg-[var(--surface)]">
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span
+                  className="rounded-full px-2 py-1 text-xs text-[var(--foreground-muted)]"
+                  aria-label="Model"
+                >
+                  {PROVIDER_MODELS[provider][0]}
+                </span>
+              )}
+            </div>
 
-          {/*
+            {/*
             Comparison-sidebar toggle. Only rendered once the user has
             triggered at least one regeneration (`canShowComparison`),
             since otherwise there's nothing to compare. Hidden below
             `lg` to match the sidebar's own breakpoint — the diff view
             is a desktop affordance.
           */}
-          {canShowComparison && (
-            <motion.button
-              type="button"
-              onClick={() => setComparisonOpen((v) => !v)}
-              aria-pressed={comparisonOpen}
-              aria-label={
-                comparisonOpen
-                  ? "Hide regeneration comparison"
-                  : "Show regeneration comparison"
-              }
-              title={
-                comparisonOpen
-                  ? "Hide regeneration comparison"
-                  : "Show regeneration comparison"
-              }
-              className={`hidden h-9 items-center gap-1.5 rounded-full border px-3 font-[family-name:var(--font-instrument)] text-[12px] tracking-wide transition lg:inline-flex ${
-                comparisonOpen
+            {canShowComparison && (
+              <motion.button
+                type="button"
+                onClick={() => setComparisonOpen((v) => !v)}
+                aria-pressed={comparisonOpen}
+                aria-label={
+                  comparisonOpen
+                    ? "Hide regeneration comparison"
+                    : "Show regeneration comparison"
+                }
+                title={
+                  comparisonOpen
+                    ? "Hide regeneration comparison"
+                    : "Show regeneration comparison"
+                }
+                className={`hidden h-9 items-center gap-1.5 rounded-full border px-3 font-[family-name:var(--font-instrument)] text-[12px] tracking-wide transition lg:inline-flex ${comparisonOpen
                   ? "border-[var(--accent)]/60 bg-[var(--accent)]/10 text-[var(--accent)]"
                   : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] hover:border-[var(--accent)]/40 hover:text-[var(--foreground)]"
-              }`}
-              whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
-              whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
-            >
-              <CompareIcon className="h-3.5 w-3.5" />
-              <span>{comparisonOpen ? "Hide diff" : "Show diff"}</span>
-            </motion.button>
-          )}
+                  }`}
+                whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
+              >
+                <CompareIcon className="h-3.5 w-3.5" />
+                <span>{comparisonOpen ? "Hide diff" : "Show diff"}</span>
+              </motion.button>
+            )}
 
-          <motion.button
-            type="button"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-            title={`Switch to ${isDark ? "light" : "dark"} mode`}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
-            whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
-            whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
-          >
-            {/*
+            <motion.button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+              title={`Switch to ${isDark ? "light" : "dark"} mode`}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+              whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
+              whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+            >
+              {/*
               Hold the icon back until next-themes hydrates so we don't render
               the wrong glyph (or trigger a hydration warning) for users on
               the non-default OS preference. The wrapper keeps the button
               size stable so layout doesn't jitter on mount.
             */}
-            <span className="flex h-4 w-4 items-center justify-center">
-              {themeMounted ? (
-                isDark ? (
-                  <SunIcon className="h-4 w-4" />
-                ) : (
-                  <MoonIcon className="h-4 w-4" />
-                )
-              ) : null}
-            </span>
-          </motion.button>
-        </div>
-      </header>
+              <span className="flex h-4 w-4 items-center justify-center">
+                {themeMounted ? (
+                  isDark ? (
+                    <SunIcon className="h-4 w-4" />
+                  ) : (
+                    <MoonIcon className="h-4 w-4" />
+                  )
+                ) : null}
+              </span>
+            </motion.button>
+          </div>
+        </header>
 
-      {/* Mobile provider/model row */}
-      <div className="flex items-center justify-center gap-1 border-b border-[var(--border)] bg-background px-4 py-2 sm:hidden">
-        <select
-          value={provider}
-          onChange={(e) => changeProvider(e.target.value as Provider)}
-          className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
-          aria-label="Provider"
-        >
-          {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
-            <option key={p} value={p}>
-              {PROVIDER_LABEL[p]}
-            </option>
-          ))}
-        </select>
-        {PROVIDER_MODELS[provider].length > 1 ? (
+        {/* Mobile provider/model row */}
+        <div className="flex items-center justify-center gap-1 border-b border-[var(--border)] bg-background px-4 py-2 sm:hidden">
           <select
-            value={model}
-            onChange={(e) => setModel(e.target.value as ChatModel)}
+            value={provider}
+            onChange={(e) => changeProvider(e.target.value as Provider)}
             className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
-            aria-label="Model"
+            aria-label="Provider"
           >
-            {PROVIDER_MODELS[provider].map((m) => (
-              <option key={m} value={m}>
-                {m}
+            {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
+              <option key={p} value={p}>
+                {PROVIDER_LABEL[p]}
               </option>
             ))}
           </select>
-        ) : (
-          <span
-            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--foreground-muted)]"
-            aria-label="Model"
-          >
-            {PROVIDER_MODELS[provider][0]}
-          </span>
-        )}
-      </div>
-
-      {/* Conversation / welcome */}
-      <main
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(201,100,66,0.06),transparent_42%)] dark:bg-[radial-gradient(circle_at_top,rgba(217,119,87,0.07),transparent_45%)]"
-      >
-        <AnimatePresence mode="wait" initial={false}>
-          {!hasMessages ? (
-            <motion.div
-              key="welcome"
-              initial={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
-              animate={messageEnter}
-              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -14 }}
-              transition={{ duration: 0.28, ease: "easeOut" }}
-              className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-6 text-center"
+          {PROVIDER_MODELS[provider].length > 1 ? (
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value as ChatModel)}
+              className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
+              aria-label="Model"
             >
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm">
-                <SparkIcon className="h-6 w-6" />
-              </div>
-              <h2 className="mb-3 font-serif text-4xl tracking-tight text-[var(--foreground)] sm:text-5xl">
-                How can I <span className="italic">help</span> you today?
-              </h2>
-              <p className="mb-8 max-w-md text-[16px] leading-relaxed text-[var(--foreground-muted)]">
-                Ask anything. Every assistant reply is fact-checked by three
-                independent verifier agents.
-              </p>
-
-              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-                {[
-                  "Summarize the findings of Johnson et al. 2021 on intermittent fasting",
-                  "Who won the 2023 Nobel Prize in Physics, and for what?",
-                  "What is the population of Lisbon as of 2024?",
-                  "Explain the Riemann hypothesis in plain English",
-                ].map((suggestion) => (
-                  <motion.button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => sendMessage(suggestion)}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]"
-                    whileHover={shouldReduceMotion ? undefined : { y: -1.5 }}
-                    whileTap={shouldReduceMotion ? undefined : { scale: 0.995 }}
-                  >
-                    {suggestion}
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
+              {PROVIDER_MODELS[provider].map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
           ) : (
-            <motion.div
-              key="thread"
-              initial={shouldReduceMotion ? undefined : { opacity: 0, y: 12 }}
-              animate={messageEnter}
-              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
-              className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6"
+            <span
+              className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--foreground-muted)]"
+              aria-label="Model"
             >
-            {messages.map((m) =>
-              m.role === "user" ? (
-                <motion.div
-                  key={m.id}
-                  initial={messageInitial}
-                  animate={messageEnter}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="flex justify-end"
-                >
-                  <div
-                    className="group max-w-[85%] rounded-2xl bg-[var(--user-bubble)] px-4 py-3 text-[15px] leading-relaxed text-[var(--foreground)]"
-                    title={new Date(m.timestamp).toLocaleString()}
-                  >
-                    <div className="whitespace-pre-wrap break-words">
-                      {m.content}
-                    </div>
-                    <div className="mt-1 text-right text-[10px] text-[var(--foreground-muted)] opacity-0 transition-opacity group-hover:opacity-100">
-                      {formatTime(m.timestamp)}
-                    </div>
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={m.id}
-                  initial={messageInitial}
-                  animate={messageEnter}
-                  transition={{ duration: 0.22, ease: "easeOut" }}
-                  className="flex gap-3"
-                >
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
-                    <SparkIcon className="h-3.5 w-3.5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      {m.provider ? (
-                        <div
-                          className="text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]"
-                          title={new Date(m.timestamp).toLocaleString()}
-                        >
-                          {m.provider} · {m.model}
-                          <span className="ml-1.5 normal-case opacity-70">
-                            · {formatTime(m.timestamp)}
-                          </span>
-                        </div>
-                      ) : (
-                        <span />
-                      )}
-                      <motion.button
-                        type="button"
-                        onClick={() => copyAssistantMessage(m.id, m.content)}
-                        className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-[2px] text-[4px] font-medium tracking-wide leading-none text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/35 hover:text-[var(--foreground)]"
-                        whileHover={shouldReduceMotion ? undefined : { y: -1 }}
-                        whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
-                        aria-label="Copy assistant response"
-                        title="Copy response"
-                      >
-                        {copiedMessageId === m.id ? (
-                          <>
-                            <CheckIcon className="h-4 w-4" />
-                            <span>Copied</span>
-                          </>
-                        ) : (
-                          <>
-                              <CopyIcon className="h-4 w-4" />
-                            <span>Copy</span>
-                          </>
-                        )}
-                      </motion.button>
-                    </div>
-                    {m.regenerates_message_id && (
-                      <BeforeAfterDiff
-                        before={{
-                          audit: audits[m.regenerates_message_id],
-                          pending: pendingAudits.has(m.regenerates_message_id),
-                          error: auditErrors[m.regenerates_message_id],
-                        }}
-                        after={{
-                          audit: audits[m.id],
-                          pending: pendingAudits.has(m.id),
-                          error: auditErrors[m.id],
-                        }}
-                      />
-                    )}
-                    <div className="text-[15px] leading-relaxed text-[var(--foreground)]">
-                      <MarkdownLite text={m.content} />
-                    </div>
-                    <AuditPanel
-                      messageId={m.id}
-                      isPending={pendingAudits.has(m.id)}
-                      audit={audits[m.id]}
-                      errorMessage={auditErrors[m.id]}
-                      onDehallucinate={() => requestDehallucinate(m.id)}
-                      isDehallucPending={dehallucPending.has(m.id)}
-                      dehallucError={dehallucErrors[m.id]}
-                    />
-                  </div>
-                </motion.div>
-              )
-            )}
-
-            <AnimatePresence>
-              {pending && (
-                <motion.div
-                  initial={messageInitial}
-                  animate={messageEnter}
-                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="flex gap-3"
-                >
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
-                  <SparkIcon className="h-3.5 w-3.5" />
-                </div>
-                <div className="flex items-center gap-1.5 pt-2">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.3s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.15s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)]" />
-                </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <AnimatePresence>
-              {error && (
-                <motion.div
-                  initial={shouldReduceMotion ? undefined : { opacity: 0, y: 8 }}
-                  animate={messageEnter}
-                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="rounded-xl border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-                >
-                  {error}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            </motion.div>
+              {PROVIDER_MODELS[provider][0]}
+            </span>
           )}
-        </AnimatePresence>
-      </main>
+        </div>
 
-      {/* Composer */}
-      <div className="border-t border-[var(--border)] bg-background/90 px-4 pb-4 pt-3 backdrop-blur sm:px-6">
-        <form
-          onSubmit={handleSubmit}
-          className="mx-auto w-full max-w-3xl"
+        {/* Conversation / welcome */}
+        <main
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(201,100,66,0.06),transparent_42%)] dark:bg-[radial-gradient(circle_at_top,rgba(217,119,87,0.07),transparent_45%)]"
         >
-          {/*
+          <AnimatePresence mode="wait" initial={false}>
+            {!hasMessages ? (
+              <motion.div
+                key="welcome"
+                initial={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
+                animate={messageEnter}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -14 }}
+                transition={{ duration: 0.28, ease: "easeOut" }}
+                className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-6 text-center"
+              >
+                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm">
+                  <SparkIcon className="h-6 w-6" />
+                </div>
+                <h2 className="mb-3 font-serif text-4xl tracking-tight text-[var(--foreground)] sm:text-5xl">
+                  How can I <span className="italic">help</span> you today?
+                </h2>
+                <p className="mb-8 max-w-md text-[16px] leading-relaxed text-[var(--foreground-muted)]">
+                  Ask anything. Every assistant reply is fact-checked by three
+                  independent verifier agents.
+                </p>
+
+                <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+                  {[
+                    "Summarize the findings of Johnson et al. 2021 on intermittent fasting",
+                    "Who won the 2023 Nobel Prize in Physics, and for what?",
+                    "What is the population of Lisbon as of 2024?",
+                    "Explain the Riemann hypothesis in plain English",
+                  ].map((suggestion) => (
+                    <motion.button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => sendMessage(suggestion)}
+                      className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]"
+                      whileHover={shouldReduceMotion ? undefined : { y: -1.5 }}
+                      whileTap={shouldReduceMotion ? undefined : { scale: 0.995 }}
+                    >
+                      {suggestion}
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="thread"
+                initial={shouldReduceMotion ? undefined : { opacity: 0, y: 12 }}
+                animate={messageEnter}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6"
+              >
+                {messages.map((m) =>
+                  m.role === "user" ? (
+                    <motion.div
+                      key={m.id}
+                      initial={messageInitial}
+                      animate={messageEnter}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      className="flex justify-end"
+                    >
+                      <div
+                        className="group max-w-[85%] rounded-2xl bg-[var(--user-bubble)] px-4 py-3 text-[15px] leading-relaxed text-[var(--foreground)]"
+                        title={new Date(m.timestamp).toLocaleString()}
+                      >
+                        <div className="whitespace-pre-wrap break-words">
+                          {m.content}
+                        </div>
+                        <div className="mt-1 text-right text-[10px] text-[var(--foreground-muted)] opacity-0 transition-opacity group-hover:opacity-100">
+                          {formatTime(m.timestamp)}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key={m.id}
+                      initial={messageInitial}
+                      animate={messageEnter}
+                      transition={{ duration: 0.22, ease: "easeOut" }}
+                      className="flex gap-3"
+                    >
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
+                        <SparkIcon className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          {m.provider ? (
+                            <div
+                              className="text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]"
+                              title={new Date(m.timestamp).toLocaleString()}
+                            >
+                              {m.provider} · {m.model}
+                              <span className="ml-1.5 normal-case opacity-70">
+                                · {formatTime(m.timestamp)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span />
+                          )}
+                          <motion.button
+                            type="button"
+                            onClick={() => copyAssistantMessage(m.id, m.content)}
+                            className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-[2px] text-[4px] font-medium tracking-wide leading-none text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/35 hover:text-[var(--foreground)]"
+                            whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+                            whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
+                            aria-label="Copy assistant response"
+                            title="Copy response"
+                          >
+                            {copiedMessageId === m.id ? (
+                              <>
+                                <CheckIcon className="h-4 w-4" />
+                                <span>Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <CopyIcon className="h-4 w-4" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </motion.button>
+                        </div>
+                        {m.regenerates_message_id && (
+                          <BeforeAfterDiff
+                            before={{
+                              audit: audits[m.regenerates_message_id],
+                              pending: pendingAudits.has(m.regenerates_message_id),
+                              error: auditErrors[m.regenerates_message_id],
+                            }}
+                            after={{
+                              audit: audits[m.id],
+                              pending: pendingAudits.has(m.id),
+                              error: auditErrors[m.id],
+                            }}
+                          />
+                        )}
+                        <div className="text-[15px] leading-relaxed text-[var(--foreground)]">
+                          <MarkdownLite text={m.content} />
+                        </div>
+                        <AuditPanel
+                          messageId={m.id}
+                          isPending={pendingAudits.has(m.id)}
+                          audit={audits[m.id]}
+                          errorMessage={auditErrors[m.id]}
+                          onDehallucinate={() => requestDehallucinate(m.id)}
+                          isDehallucPending={dehallucPending.has(m.id)}
+                          dehallucError={dehallucErrors[m.id]}
+                        />
+                      </div>
+                    </motion.div>
+                  )
+                )}
+
+                <AnimatePresence>
+                  {pending && (
+                    <motion.div
+                      initial={messageInitial}
+                      animate={messageEnter}
+                      exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      className="flex gap-3"
+                    >
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
+                        <SparkIcon className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-2">
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.3s]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.15s]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)]" />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      initial={shouldReduceMotion ? undefined : { opacity: 0, y: 8 }}
+                      animate={messageEnter}
+                      exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                      className="rounded-xl border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+                    >
+                      {error}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
+
+        {/* Composer */}
+        <div className="border-t border-[var(--border)] bg-background/90 px-4 pb-4 pt-3 backdrop-blur sm:px-6">
+          <form
+            onSubmit={handleSubmit}
+            className="mx-auto w-full max-w-3xl"
+          >
+            {/*
             Demo-prompt chips (PROJECT_PLAN.md task 5.1).
             Paste into the input but DO NOT auto-send — the user presses
             Send themselves so the demo flow looks natural and they have
@@ -1738,81 +1737,81 @@ export default function Home() {
             design: small, muted, sits above the composer, never the
             dominant element.
           */}
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
-              Demo:
-            </span>
-            {DEMO_PROMPTS.map((demo) => (
-              <motion.button
-                key={demo.label}
-                type="button"
-                onClick={() => loadDemoPrompt(demo.prompt)}
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
+                Demo:
+              </span>
+              {DEMO_PROMPTS.map((demo) => (
+                <motion.button
+                  key={demo.label}
+                  type="button"
+                  onClick={() => loadDemoPrompt(demo.prompt)}
+                  disabled={pending}
+                  title={demo.prompt}
+                  className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                  whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+                  whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
+                >
+                  {demo.label}
+                </motion.button>
+              ))}
+            </div>
+            <div className="group relative flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-[0_1px_0_rgba(0,0,0,0.04)] transition focus-within:border-[var(--accent)]/50 focus-within:shadow-lg">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  hasMessages
+                    ? "Reply to Groundtruth…"
+                    : "Ask anything — ⌘/Ctrl+K to jump here anytime"
+                }
+                rows={1}
                 disabled={pending}
-                title={demo.prompt}
-                className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
-                whileHover={shouldReduceMotion ? undefined : { y: -1 }}
-                whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
+                aria-label="Message composer"
+                className="max-h-60 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-[1.6] text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] focus:outline-none disabled:opacity-60"
+              />
+              <motion.button
+                type="submit"
+                disabled={pending || !input.trim()}
+                aria-label="Send message"
+                className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
               >
-                {demo.label}
+                <SendIcon className="h-4 w-4" />
               </motion.button>
-            ))}
-          </div>
-          <div className="group relative flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-[0_1px_0_rgba(0,0,0,0.04)] transition focus-within:border-[var(--accent)]/50 focus-within:shadow-lg">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                hasMessages
-                  ? "Reply to Groundtruth…"
-                  : "Ask anything — ⌘/Ctrl+K to jump here anytime"
-              }
-              rows={1}
-              disabled={pending}
-              aria-label="Message composer"
-              className="max-h-60 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-[1.6] text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] focus:outline-none disabled:opacity-60"
-            />
-            <motion.button
-              type="submit"
-              disabled={pending || !input.trim()}
-              aria-label="Send message"
-              className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
-              whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
-            >
-              <SendIcon className="h-4 w-4" />
-            </motion.button>
-          </div>
-          <p className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[11px] text-[var(--foreground-muted)]">
-            <span>Audited by three verifier agents.</span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                Enter
-              </kbd>
-              send
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                Shift+Enter
-              </kbd>
-              newline
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                ⌘/Ctrl+K
-              </kbd>
-              focus
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                Esc
-              </kbd>
-              clear
-            </span>
-          </p>
-        </form>
-      </div>
+            </div>
+            <p className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[11px] text-[var(--foreground-muted)]">
+              <span>Audited by three verifier agents.</span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                  Enter
+                </kbd>
+                send
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                  Shift+Enter
+                </kbd>
+                newline
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                  ⌘/Ctrl+K
+                </kbd>
+                focus
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
+                  Esc
+                </kbd>
+                clear
+              </span>
+            </p>
+          </form>
+        </div>
       </div>
       {/* End chat column. The ComparisonSidebar docks to its right on
           lg+ viewports and is hidden below that breakpoint (the inline
