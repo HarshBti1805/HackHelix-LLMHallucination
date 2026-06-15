@@ -15,6 +15,7 @@ import type {
 } from "@/types";
 import { ClaimList } from "@/components/audit/ClaimList";
 import { SummaryBar } from "@/components/audit/SummaryBar";
+import { AuditHeadlineBar } from "@/components/audit/AuditHeadlineBar";
 import { failedClaimCount } from "@/components/audit/verdict";
 import { ComparisonSidebar } from "@/components/comparison/ComparisonSidebar";
 import { useTheme, PALETTE_META, type Palette } from "@/components/ThemeProvider";
@@ -242,6 +243,7 @@ function AuditPanel({ isPending, audit, errorMessage, onDehallucinate, isDehallu
 
   return (
     <div style={{marginTop:16,border:"1px solid var(--border)",borderRadius:13,background:"var(--bg-raised)",overflow:"hidden",boxShadow:"var(--shadow-card)"}}>
+      <AuditHeadlineBar summary={audit.summary} />
       <SummaryBar
         summary={audit.summary}
         failedCount={failed}
@@ -621,7 +623,7 @@ export default function Home() {
   const NAV_ITEMS = [
     { href: "/document", label: "Document" },
     { href: "/guardrail", label: "Guardrail" },
-    { href: "/citations", label: "Citations" },
+    { href: "/verify", label: "Verify" },
     { href: "/benchmark", label: "Benchmark" },
   ];
 

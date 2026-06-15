@@ -66,6 +66,75 @@ export function failedClaimCount(audit: { summary: AuditSummary }): number {
   return audit.summary.contradicted + audit.summary.likely_hallucination;
 }
 
+export interface AuditHeadline {
+  /** One-line, human-readable verdict for the whole response. */
+  text: string;
+  /** CSS var for the leading dot / accent, keyed to the worst verdict present. */
+  color: string;
+}
+
+/**
+ * Build the at-a-glance TL;DR shown above the per-claim breakdown
+ * (MAJOR_CHANGES.md #1). Pure + deterministic — no LLM call, so it's instant
+ * and free on every audit. The phrasing adapts to what was actually found
+ * (all-clear vs. unconfirmed vs. caught-N-problems) and the color tracks the
+ * most severe verdict present so the line reads correctly at a glance.
+ */
+export function auditHeadline(summary: AuditSummary): AuditHeadline {
+  const {
+    total_claims: total,
+    verified,
+    unverified_plausible: unver,
+    contradicted: contra,
+    likely_hallucination: halluc,
+  } = summary;
+
+  if (total === 0) {
+    return {
+      text: "No verifiable factual claims found in this response.",
+      color: "var(--text-muted)",
+    };
+  }
+
+  const color =
+    halluc > 0
+      ? "var(--v-hallucination)"
+      : contra > 0
+        ? "var(--v-contradicted)"
+        : unver > 0
+          ? "var(--v-unverified)"
+          : "var(--v-verified)";
+
+  const claimWord = `${total} claim${total === 1 ? "" : "s"}`;
+  const failed = contra + halluc;
+
+  if (failed === 0 && unver === 0) {
+    return {
+      text: `Looks solid — all ${claimWord} check out against the evidence.`,
+      color,
+    };
+  }
+
+  if (failed === 0) {
+    return {
+      text: `Mostly reliable — ${verified} of ${total} verified, ${unver} plausible but unconfirmed, and no contradictions.`,
+      color,
+    };
+  }
+
+  const problems: string[] = [];
+  if (halluc > 0)
+    problems.push(`${halluc} likely hallucination${halluc === 1 ? "" : "s"}`);
+  if (contra > 0) problems.push(`${contra} contradicted`);
+  const problemText = problems.join(" and ");
+  const stance = failed >= Math.ceil(total / 2) ? "Unreliable" : "Needs a look";
+
+  return {
+    text: `${stance} — flagged ${problemText} out of ${claimWord}.`,
+    color,
+  };
+}
+
 export const SUMMARY_CATEGORIES: {
   verdict: Verdict;
   field: keyof AuditSummary;

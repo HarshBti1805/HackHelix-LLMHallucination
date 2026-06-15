@@ -19,6 +19,7 @@ import { AuditingProgress } from "@/components/document/AuditingProgress";
 import { SourceViewer } from "@/components/document/SourceViewer";
 import { RevisionsModal } from "@/components/document/RevisionsModal";
 import { ReviewWorkspace } from "@/components/document/ReviewWorkspace";
+import { AuditHeadlineBar } from "@/components/audit/AuditHeadlineBar";
 
 /**
  * Dedicated document-audit report view (IMPROVEMENTS.md Phase A,
@@ -255,6 +256,10 @@ function DocumentReport({ audit }: { audit: DocumentAudit }) {
 
       {hasClaims ? (
         <>
+          <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
+            <AuditHeadlineBar summary={audit.summary} />
+          </div>
+
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
             <TrustScoreCard summary={audit.summary} />
             <VerdictDistribution summary={audit.summary} />

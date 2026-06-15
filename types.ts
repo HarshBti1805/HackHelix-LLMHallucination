@@ -385,6 +385,20 @@ export interface CheckCitationsRequestBody {
 
 export type CheckCitationsResponseBody = CitationReport;
 
+// ---- Fetch a URL / webpage (MAJOR_CHANGES.md #5) ----
+
+export interface FetchUrlRequestBody {
+  url: string;
+}
+
+export interface FetchUrlResponseBody {
+  url: string;
+  /** Page <title> (or hostname fallback). */
+  title: string;
+  /** Readable, tag-stripped body text ready to feed into the auditor. */
+  text: string;
+}
+
 // ---- Errors ----
 
 /**

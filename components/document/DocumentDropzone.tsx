@@ -79,15 +79,50 @@ export function DocumentDropzone({
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
   const visibleError = errorMessage ?? readError;
 
+  const [parsing, setParsing] = useState(false);
+
   async function ingestFile(file: File) {
+    const ext = file.name.toLowerCase().split(".").pop() ?? "";
+    const isBinary = ext === "pdf" || ext === "docx" || ext === "doc";
+
+    setReadError(null);
+
+    // Plain-text formats are read in the browser (instant, no round-trip).
+    if (!isBinary) {
+      try {
+        const contents = await file.text();
+        onSourceChange(contents, file.name);
+      } catch (err) {
+        setReadError(
+          `Couldn't read file: ${err instanceof Error ? err.message : "unknown error"}`,
+        );
+      }
+      return;
+    }
+
+    // PDF / Word need server-side parsing (pdf-parse / mammoth).
+    setParsing(true);
     try {
-      const contents = await file.text();
-      onSourceChange(contents, file.name);
-      setReadError(null);
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/extract-file", {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(payload.error ?? `Extraction failed (${res.status}).`);
+      }
+      const data = (await res.json()) as { filename: string; text: string };
+      onSourceChange(data.text, data.filename || file.name);
     } catch (err) {
       setReadError(
-        `Couldn't read file: ${err instanceof Error ? err.message : "unknown error"}`,
+        err instanceof Error ? err.message : "Couldn't parse that file.",
       );
+    } finally {
+      setParsing(false);
     }
   }
 
@@ -166,6 +201,10 @@ export function DocumentDropzone({
               <>
                 Drop it <span className="italic">here</span>
               </>
+            ) : parsing ? (
+              <>
+                Reading <span className="italic">document…</span>
+              </>
             ) : filename ? (
               <>
                 Loaded <span className="italic">{filename}</span>
@@ -177,8 +216,11 @@ export function DocumentDropzone({
             )}
           </p>
           <p className="text-[13px] text-[var(--foreground-muted)]">
-            Supports <code className="font-[family-name:var(--font-dm-mono)] text-[12px]">.txt</code>{" "}
-            and <code className="font-[family-name:var(--font-dm-mono)] text-[12px]">.md</code>{" "}
+            Supports{" "}
+            <code className="font-[family-name:var(--font-dm-mono)] text-[12px]">.pdf</code>,{" "}
+            <code className="font-[family-name:var(--font-dm-mono)] text-[12px]">.docx</code>,{" "}
+            <code className="font-[family-name:var(--font-dm-mono)] text-[12px]">.txt</code>,{" "}
+            <code className="font-[family-name:var(--font-dm-mono)] text-[12px]">.md</code>{" "}
             · or paste text below
           </p>
         </div>
@@ -199,7 +241,7 @@ export function DocumentDropzone({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".txt,.md,text/plain,text/markdown"
+          accept=".txt,.md,.pdf,.docx,.doc,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
           onChange={handleFileChange}
           className="hidden"
           aria-hidden="true"

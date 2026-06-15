@@ -72,7 +72,12 @@ These extend — never replace — the core pipeline. The three-agent web-audit 
 | `lib/citations.ts` | #8 Citation checker: extract references → match against bibliographic indices | Web search; bib HTTP calls (delegates to `lib/bib.ts`) |
 | `lib/bib.ts` | Crossref + Semantic Scholar HTTP clients → `CitationCandidate[]` | Any LLM logic |
 | `app/api/check-citations/route.ts` | Thin wrapper over `checkCitations` | Business logic |
-| `app/guardrail/page.tsx` · `app/citations/page.tsx` | Standalone tool UIs | Call LLMs directly |
+| `lib/html-extract.ts` | #5 HTML → readable text (no deps) | Fetch (route does that) |
+| `app/api/fetch-url/route.ts` | #5 Server-side webpage fetch (SSRF-guarded) → `{title,text}` | Audit; parse beyond tag-strip |
+| `app/api/extract-file/route.ts` | #6 PDF/Word → text (pdf-parse + mammoth) | Audit |
+| `components/audit/AuditHeadlineBar.tsx` + `auditHeadline()` in `verdict.ts` | #1 One-line TL;DR over any audit summary (pure, no LLM call) | Make network/LLM calls |
+| `app/guardrail/page.tsx` | RAG guardrail UI | Call LLMs directly |
+| `app/verify/page.tsx` | #5 + #8 combined: fetch text/URL, then audit claims **or** check citations | Call LLMs directly |
 | `components/document/ReviewWorkspace.tsx` | #9 Compliance review: assign/sign-off claims, export audit trail (in-memory) | Persist anything server-side |
 
 ---

@@ -32,8 +32,14 @@
   </svg>`;
 
   const CSS = `
+    @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+
     :host { all: initial; }
-    *, *::before, *::after { box-sizing: border-box; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    *, *::before, *::after {
+      box-sizing: border-box;
+      font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
 
     @keyframes gt-spin    { to { transform: rotate(360deg); } }
     @keyframes gt-claimin { 0%{opacity:0;transform:translateY(8px)} 100%{opacity:1;transform:translateY(0)} }
@@ -50,6 +56,8 @@
       background: ${T.surface}; color: ${T.fg};
       border: 1px solid ${T.border}; box-shadow: 0 6px 20px rgba(0,0,0,.3);
       font-size: 12px; font-weight: 600; user-select: none;
+      font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
       transition: transform .12s ease, box-shadow .12s ease;
       will-change: top, left;
     }
@@ -82,8 +90,8 @@
       display: grid; place-items: center; flex: none;
     }
     .pop-head .brand { flex: 1; min-width: 0; }
-    .pop-head .brand .t { font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; color: ${T.fg}; }
-    .pop-head .brand .s { font-size: 9px; letter-spacing: .07em; text-transform: uppercase; color: ${T.fgMuted}; margin-top: 1px; font-family: ui-monospace, monospace; }
+    .pop-head .brand .t { font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; color: ${T.fg}; font-family: 'Space Grotesk', ui-sans-serif, sans-serif; }
+    .pop-head .brand .s { font-size: 9px; letter-spacing: .07em; text-transform: uppercase; color: ${T.fgMuted}; margin-top: 1px; font-family: 'Geist Mono', ui-monospace, monospace; }
     .pop-ico { background: transparent; border: 1px solid ${T.border}; color: ${T.fgMuted}; cursor: pointer; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; flex: none; }
     .pop-ico:hover { background: ${T.surface}; color: ${T.fg}; }
     .pop-ico svg { width: 10px; height: 10px; }
@@ -97,6 +105,7 @@
       display: inline-flex; align-items: center; gap: 5px;
       height: 22px; padding: 0 9px; border-radius: 999px;
       font-size: 11px; font-weight: 600; white-space: nowrap;
+      font-family: 'Geist', ui-sans-serif, sans-serif;
     }
     .chip .cdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 
@@ -115,17 +124,17 @@
     .claim-row:hover { background: rgba(255,255,255,.04); }
     .claim-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
     .claim-text {
-      flex: 1; min-width: 0; font-family: ui-monospace, monospace;
+      flex: 1; min-width: 0; font-family: 'Geist Mono', ui-monospace, monospace;
       font-size: 11px; color: ${T.fg};
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .claim-conf { font-family: ui-monospace, monospace; font-size: 10px; color: ${T.fgMuted}; flex: none; }
-    .claim-chev { font-size: 14px; color: ${T.fgMuted}; flex: none; font-family: ui-monospace, monospace; }
+    .claim-conf { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; color: ${T.fgMuted}; flex: none; }
+    .claim-chev { font-size: 14px; color: ${T.fgMuted}; flex: none; font-family: 'Geist Mono', ui-monospace, monospace; }
 
     /* expanded claim detail */
     .claim-detail { padding: 0 11px 10px; border-top: 1px solid ${T.border}; display: flex; flex-direction: column; gap: 6px; }
     .agent-row { display: flex; gap: 7px; font-size: 11px; line-height: 1.4; }
-    .agent-role { font-family: ui-monospace, monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; flex: none; width: 62px; margin-top: 1px; }
+    .agent-role { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; flex: none; width: 62px; margin-top: 1px; }
     .agent-text { color: ${T.fgMuted}; flex: 1; }
     .agent-src a { color: ${T.accent}; font-size: 10px; text-decoration: none; }
     .agent-src a:hover { text-decoration: underline; }
@@ -170,8 +179,8 @@
       background: ${T.surface}; border: 1px solid ${T.border};
       display: grid; place-items: center; flex: none;
     }
-    .l-brand .t { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
-    .l-brand .s { font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: ${T.fgMuted}; margin-top: 1px; }
+    .l-brand .t { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-family: 'Space Grotesk', ui-sans-serif, sans-serif; }
+    .l-brand .s { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: ${T.fgMuted}; margin-top: 1px; }
 
     /* launcher body */
     .l-body { padding: 15px 17px; }
@@ -187,9 +196,9 @@
       background: ${T.surfaceMuted}; border: 1px solid ${T.border};
       margin-bottom: 14px;
     }
-    .l-info .lbl { font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: ${T.fgMuted}; margin-bottom: 3px; }
+    .l-info .lbl { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: ${T.fgMuted}; margin-bottom: 3px; }
     .l-info .val { font-size: 13px; color: ${T.fg}; }
-    .l-info a { font-family: ui-monospace, monospace; font-size: 11px; color: ${T.accent}; text-decoration: none; display: flex; align-items: center; gap: 3px; }
+    .l-info a { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: ${T.accent}; text-decoration: none; display: flex; align-items: center; gap: 3px; }
     .l-info a:hover { text-decoration: underline; }
 
     .l-row { display: flex; gap: 9px; }
@@ -212,16 +221,16 @@
     .l-foot {
       padding: 11px 17px; border-top: 1px solid ${T.border};
       background: ${T.surfaceMuted};
-      font-family: ui-monospace, monospace; font-size: 10px; color: ${T.fgMuted};
+      font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; color: ${T.fgMuted};
     }
 
     /* settings section inside launcher */
     .l-settings { padding: 0 17px 15px; }
-    .l-settings .lbl { font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: ${T.fgMuted}; margin-bottom: 8px; }
+    .l-settings .lbl { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: ${T.fgMuted}; margin-bottom: 8px; }
     .l-url-box {
       display: flex; align-items: center; height: 34px; padding: 0 11px;
       border-radius: 9px; background: ${T.surfaceMuted}; border: 1px solid ${T.border};
-      font-family: ui-monospace, monospace; font-size: 11.5px; color: ${T.fgMuted};
+      font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: ${T.fgMuted};
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
 
