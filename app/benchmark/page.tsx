@@ -3,24 +3,27 @@ import { getBenchmarkView } from "./data";
 import { BenchmarkClient } from "./BenchmarkClient";
 
 /**
- * /benchmark — read-only summary of the locked auditor pipeline run
- * across three efficient-tier providers + a live two-prompt comparison
- * surface (OpenAI vs Anthropic only).
+ * /benchmark — an interactive "run your own benchmark" tool on top of the
+ * published reference eval.
+ *
+ * The interactive section lets the user select any number of built-in or
+ * custom prompts and run them across any subset of the three chat providers,
+ * scoring each response with the locked OpenAI auditor via the existing
+ * /api/chat + /api/audit routes (no new endpoints).
  *
  * The heavy `eval/results.json` artifact is imported here in a server
- * component and reduced to a slim `BenchmarkView` before being passed
- * to the client. That keeps the 1.5 MB raw audit trail out of the
- * browser bundle.
+ * component and reduced to a slim `BenchmarkView` before being passed to the
+ * client — that keeps the ~1.5 MB raw audit trail out of the browser bundle
+ * and powers the published reference table below the tool.
  *
- * Per CLAUDE.md "additive only — no changes to existing API routes,
- * lib/ modules, types.ts, or /document". This page reuses /api/chat
- * and /api/audit as-is for its live comparison panel.
+ * Per CLAUDE.md "additive only — no changes to existing API routes, lib/
+ * modules, types.ts, or /document".
  */
 
 export const metadata: Metadata = {
   title: "Groundtruth · Benchmark",
   description:
-    "Three-provider hallucination comparison across a labeled 15-prompt test set, with a live two-prompt OpenAI-vs-Anthropic duel.",
+    "Run your own LLM hallucination benchmark: pick or write prompts, choose any providers, and score every response with the locked OpenAI auditor.",
 };
 
 export default function BenchmarkPage() {

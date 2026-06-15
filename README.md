@@ -23,6 +23,22 @@ When hallucinations are detected, the system can generate a grounded "dehallucin
 
 ---
 
+## Browser extension
+
+A Manifest V3 browser extension in [`extension/`](./extension) brings the
+auditor to **ChatGPT, Claude, and Gemini in their native web UIs**. After the
+user clicks **Start**, it scrapes each completed assistant response, sends the
+text to this app's `/api/audit`, and anchors a compact verdict **badge** to the
+reply. Hovering the badge opens a popover with the per-claim breakdown and
+highlights the flawed sentences inline — and offers a "copy grounded re-prompt"
+action backed by `/api/dehallucinate`. Because the auditor
+is provider-agnostic and text-only, the extension needs only small per-site DOM
+adapters and **no per-provider auditor logic**. It is a pure client of the
+existing API (no new auditor logic, no persistence). See
+[`extension/README.md`](./extension/README.md) to install it unpacked.
+
+---
+
 ## Stack
 
 - **Next.js 14 + TypeScript** (App Router, single app, API routes for backend logic — not a monorepo)

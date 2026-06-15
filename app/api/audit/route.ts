@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { message_id, content } = body;
+  const { message_id, content, original_prompt, cross_check } = body;
 
   if (typeof message_id !== "string" || message_id.trim().length === 0) {
     return NextResponse.json(
@@ -50,7 +50,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const audit = await auditMessage(message_id, content);
+    const audit = await auditMessage(message_id, content, {
+      crossCheck: cross_check === true,
+      originalPrompt:
+        typeof original_prompt === "string" ? original_prompt : undefined,
+    });
     return NextResponse.json(audit);
   } catch (err) {
     // The auditor's most common structural failure is an LLM returning text

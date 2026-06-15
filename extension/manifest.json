@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Groundtruth — LLM Hallucination Auditor",
+  "version": "0.1.0",
+  "description": "Audits ChatGPT, Claude, and Gemini answers in-place: highlights likely hallucinations and shows a multi-agent verdict panel.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Groundtruth — toggle audit panel",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "options_page": "src/options/options.html",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "src/content/config.js",
+        "src/content/audit-client.js",
+        "src/content/adapters/base.js",
+        "src/content/adapters/chatgpt.js",
+        "src/content/adapters/claude.js",
+        "src/content/adapters/gemini.js",
+        "src/content/ui/highlights.js",
+        "src/content/ui/overlay.js",
+        "src/content/index.js"
+      ],
+      "css": ["src/content/ui/highlights.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

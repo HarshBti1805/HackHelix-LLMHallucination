@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Groundtruth — Options</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0e0f13; --surface: #1b1d25; --surface-muted: #16181f;
+        --fg: #edeef3; --fg-muted: #a4a7b6; --border: rgba(255,255,255,0.085);
+        --accent: #7c5cff; --accent-hover: #6a4be0; --accent-fg: #ffffff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 48px 32px; background: var(--bg); color: var(--fg);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.6; -webkit-font-smoothing: antialiased;
+        display: flex; justify-content: center;
+      }
+      .wrap {
+        width: 100%; max-width: 560px; background: var(--surface);
+        border: 1px solid var(--border); border-radius: 18px; padding: 30px 32px;
+        box-shadow: 0 18px 48px rgba(0,0,0,.45);
+      }
+      .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+      .logo { width: 36px; height: 36px; border-radius: 10px; background: var(--accent); display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; font-size: 13px; letter-spacing: .04em; }
+      h1 { font-size: 22px; margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; font-weight: 600; letter-spacing: -.015em; }
+      p.sub { color: var(--fg-muted); font-size: 13.5px; margin-top: 2px; line-height: 1.55; }
+      label { display: block; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; margin: 26px 0 7px; color: var(--fg-muted); }
+      input[type="text"] {
+        width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--border);
+        background: var(--bg); color: var(--fg); font-size: 13px; font-family: ui-monospace, monospace;
+        outline: none; transition: border-color .15s ease, box-shadow .15s ease;
+      }
+      input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.2); }
+      .hint { color: var(--fg-muted); font-size: 12px; margin-top: 8px; line-height: 1.55; }
+      .row { display: flex; gap: 10px; margin-top: 22px; align-items: center; }
+      button {
+        font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 999px; cursor: pointer;
+        border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg);
+        transition: background .15s ease, border-color .15s ease;
+        font-family: inherit;
+      }
+      button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+      button.secondary { background: var(--surface-muted); border-color: var(--border); color: var(--fg); }
+      button.secondary:hover { background: rgba(255,255,255,.06); }
+      .status { font-size: 13px; min-height: 18px; font-weight: 600; }
+      .status.ok { color: #34c77b; } .status.err { color: #fb5070; }
+      .sites { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--fg-muted); line-height: 1.8; }
+      code { color: var(--accent); font-family: ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="brand">
+        <div class="logo">GT</div>
+        <h1>Groundtruth</h1>
+      </div>
+      <p class="sub">
+        Audits ChatGPT, Claude, and Gemini answers in-place using the
+        Groundtruth multi-agent verification API. Point the extension at a
+        running Groundtruth backend below.
+      </p>
+
+      <label for="apiBase">Groundtruth API base URL</label>
+      <input id="apiBase" type="text" placeholder="http://localhost:3000" spellcheck="false" />
+      <div class="hint">
+        The extension calls <code>{base}/api/audit</code> and
+        <code>{base}/api/dehallucinate</code>. Use
+        <code>http://localhost:3000</code> for local dev, or your deployed
+        URL. Non-localhost URLs require granting host access (you'll be
+        prompted on save).
+      </div>
+
+      <div class="row">
+        <button id="save">Save</button>
+        <button id="test" class="secondary">Test connection</button>
+        <span id="status" class="status"></span>
+      </div>
+
+      <div class="sites">
+        Active on:
+        <code>chatgpt.com</code>, <code>chat.openai.com</code>,
+        <code>claude.ai</code>, <code>gemini.google.com</code>.<br />
+        Click the toolbar icon on any of those to open the launcher and start
+        auditing.
+      </div>
+    </div>
+    <script src="options.js"></script>
+  </body>
+</html>

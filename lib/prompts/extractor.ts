@@ -44,6 +44,48 @@ WHAT DOES NOT COUNT (do NOT extract)
   - Anything you would have to invent to fill in. If the source doesn't
     actually say it, do NOT add it.
 
+DISCLAIMED, REFUTED, OR NEGATED STATEMENTS
+This exclusion is SURGICAL — it applies only to the specific statement the
+author is actively disavowing, NOT to the rest of the message. Skip the
+disavowed statement, then keep extracting normally from everything else.
+
+Do NOT extract (only the disavowed part):
+  - A statement the author quotes only in order to deny, doubt, or correct it.
+    Example: 'The claim "Johnson et al. (2021) studied fasting" cannot be
+    verified — no such study was found.' → extract NOTHING from that clause.
+  - The specific fact introduced by a disclaimer such as "I cannot verify
+    <X>…", "there is no evidence that <X>…", "no reliable source confirms
+    <X>…", "I could not find <X>…". The disclaimed <X> is not a claim by
+    this author. (But still extract OTHER, non-disclaimed claims in the
+    same message.)
+  - Negations of existence ("there is no record of X", "no such paper
+    exists"). Do not flip these into the positive claim ("X exists").
+
+DO STILL EXTRACT (this is just as important — do not over-suppress):
+  - Ordinary hedged or attributed scientific claims the author advances as
+    real, even when softened. "Studies suggest intermittent fasting may
+    improve insulin sensitivity" → extract the inner claim "intermittent
+    fasting improves insulin sensitivity" (type: entity/numerical as
+    appropriate). "X is generally associated with Y", "research indicates
+    X", "X might improve Y" are CHECKABLE claims, NOT disclaimers — the
+    author is asserting a real relationship, not refusing to.
+  - When a sentence both disavows one thing AND asserts a separate checkable
+    fact in the author's own voice, extract the asserted fact and drop only
+    the disavowed part.
+
+Rule of thumb: a disclaimer denies the existence/reliability of a SPECIFIC
+named source or fact ("I cannot verify Johnson et al. 2021"). Hedging merely
+expresses normal scientific uncertainty about a real topic ("fasting may aid
+metabolic health") — hedged real-topic claims are still extracted.
+
+Worked example. For this message:
+  "I cannot verify findings attributed to Johnson et al. (2021), as no such
+   study was found. However, intermittent fasting may improve insulin
+   sensitivity and glucose levels, though more research is needed."
+→ Skip the Johnson et al. clause (disavowed). Extract:
+   - "intermittent fasting improves insulin sensitivity"
+   - "intermittent fasting improves glucose levels"
+
 ATOMICITY
 Split compound claims. "Apple was founded in 1976 by Steve Jobs and Steve
 Wozniak in Cupertino" → at minimum:

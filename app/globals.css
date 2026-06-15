@@ -1,165 +1,428 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where(.dark, .dark *));
+/* Tell Tailwind v4 that `dark:` variants are triggered by data-theme="dark" attribute */
+@variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* ===== GROUNDTRUTH DESIGN SYSTEM ===== */
+
+/* ---- Shared per-theme: shadows, verdict semantics, grid ---- */
+:root, [data-theme="dark"] {
+  --v-verified: #34c77b;
+  --v-unverified: #f3c14a;
+  --v-contradicted: #f8843a;
+  --v-hallucination: #fb5070;
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.03) inset, 0 10px 34px rgba(0,0,0,0.5);
+  --shadow-pop: 0 26px 64px rgba(0,0,0,0.62), 0 2px 0 rgba(255,255,255,0.05) inset;
+  --grid: rgba(255,255,255,0.025);
+}
+
+[data-theme="light"] {
+  --v-verified: #1ca35e;
+  --v-unverified: #c98a0e;
+  --v-contradicted: #e0631c;
+  --v-hallucination: #e23a5a;
+  --shadow-card: 0 1px 2px rgba(13,22,38,0.04), 0 10px 26px rgba(13,22,38,0.09);
+  --shadow-pop: 0 26px 64px rgba(13,22,38,0.20);
+  --grid: rgba(13,22,38,0.035);
+}
+
+/* ===== PALETTE: IRIS (violet on cool graphite) ===== */
+:root, [data-palette="iris"][data-theme="dark"] {
+  --bg-base: #0e0f13;
+  --bg-raised: #16181f;
+  --bg-card: #1b1d25;
+  --bg-inset: #121319;
+  --bg-elev: #242732;
+  --border: rgba(255,255,255,0.085);
+  --border-strong: rgba(255,255,255,0.17);
+  --border-faint: rgba(255,255,255,0.05);
+  --text-primary: #edeef3;
+  --text-secondary: #a4a7b6;
+  --text-muted: #6d7080;
+  --text-faint: #4a4d5b;
+  --accent: #7c5cff;
+  --accent-bright: #a896ff;
+  --accent-dim: rgba(124,92,255,0.16);
+  --accent-glow: rgba(124,92,255,0.45);
+  --v-crosscheck: #2dd4bf;
+}
+
+[data-palette="iris"][data-theme="light"] {
+  --bg-base: #f6f6fa;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-inset: #eeeef4;
+  --bg-elev: #ffffff;
+  --border: rgba(20,18,40,0.10);
+  --border-strong: rgba(20,18,40,0.18);
+  --border-faint: rgba(20,18,40,0.055);
+  --text-primary: #16161f;
+  --text-secondary: #4f5263;
+  --text-muted: #7c8092;
+  --text-faint: #abaebd;
+  --accent: #6243e0;
+  --accent-bright: #4d2fc9;
+  --accent-dim: rgba(98,67,224,0.10);
+  --accent-glow: rgba(98,67,224,0.28);
+  --v-crosscheck: #0d9488;
+}
+
+/* ===== PALETTE: AURORA (cyan on deep petrol-teal) ===== */
+[data-palette="aurora"][data-theme="dark"] {
+  --bg-base: #0a1417;
+  --bg-raised: #102025;
+  --bg-card: #14272d;
+  --bg-inset: #0d1c20;
+  --bg-elev: #1c333a;
+  --border: rgba(190,240,255,0.09);
+  --border-strong: rgba(190,240,255,0.19);
+  --border-faint: rgba(190,240,255,0.05);
+  --text-primary: #e4f1f3;
+  --text-secondary: #9bb4b9;
+  --text-muted: #61787d;
+  --text-faint: #44595d;
+  --accent: #22d3ee;
+  --accent-bright: #67e8f9;
+  --accent-dim: rgba(34,211,238,0.14);
+  --accent-glow: rgba(34,211,238,0.4);
+  --v-crosscheck: #c084fc;
+}
+
+[data-palette="aurora"][data-theme="light"] {
+  --bg-base: #eef4f5;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-inset: #e2eded;
+  --bg-elev: #ffffff;
+  --border: rgba(8,40,46,0.10);
+  --border-strong: rgba(8,40,46,0.18);
+  --border-faint: rgba(8,40,46,0.06);
+  --text-primary: #07191c;
+  --text-secondary: #44595c;
+  --text-muted: #738789;
+  --text-faint: #9cb0b2;
+  --accent: #0894b0;
+  --accent-bright: #0b7387;
+  --accent-dim: rgba(8,148,176,0.10);
+  --accent-glow: rgba(8,148,176,0.28);
+  --v-crosscheck: #9333ea;
+}
+
+/* ===== PALETTE: ORCHID (magenta on aubergine) ===== */
+[data-palette="orchid"][data-theme="dark"] {
+  --bg-base: #110b16;
+  --bg-raised: #1a121f;
+  --bg-card: #201627;
+  --bg-inset: #160e1c;
+  --bg-elev: #2a1f32;
+  --border: rgba(255,255,255,0.085);
+  --border-strong: rgba(255,255,255,0.17);
+  --border-faint: rgba(255,255,255,0.05);
+  --text-primary: #efe9f4;
+  --text-secondary: #b09cbb;
+  --text-muted: #786a83;
+  --text-faint: #54485f;
+  --accent: #cf5cf0;
+  --accent-bright: #e29bff;
+  --accent-dim: rgba(207,92,240,0.15);
+  --accent-glow: rgba(207,92,240,0.42);
+  --v-crosscheck: #2dd4bf;
+}
+
+[data-palette="orchid"][data-theme="light"] {
+  --bg-base: #f8f4fb;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-inset: #f1e9f5;
+  --bg-elev: #ffffff;
+  --border: rgba(40,18,48,0.10);
+  --border-strong: rgba(40,18,48,0.18);
+  --border-faint: rgba(40,18,48,0.06);
+  --text-primary: #1a121f;
+  --text-secondary: #5a4d63;
+  --text-muted: #847891;
+  --text-faint: #b1a6ba;
+  --accent: #a52fce;
+  --accent-bright: #8a1fb4;
+  --accent-dim: rgba(165,47,206,0.10);
+  --accent-glow: rgba(165,47,206,0.28);
+  --v-crosscheck: #0d9488;
+}
+
+/* ===== PALETTE: COBALT (azure on navy-slate) ===== */
+[data-palette="cobalt"][data-theme="dark"] {
+  --bg-base: #0b1020;
+  --bg-raised: #121a2e;
+  --bg-card: #162038;
+  --bg-inset: #0d1326;
+  --bg-elev: #1e2c48;
+  --border: rgba(180,205,255,0.09);
+  --border-strong: rgba(180,205,255,0.19);
+  --border-faint: rgba(180,205,255,0.05);
+  --text-primary: #e6ecf7;
+  --text-secondary: #97a6c2;
+  --text-muted: #5f6e8c;
+  --text-faint: #424f6a;
+  --accent: #3b82f6;
+  --accent-bright: #6ba3ff;
+  --accent-dim: rgba(59,130,246,0.16);
+  --accent-glow: rgba(59,130,246,0.45);
+  --v-crosscheck: #e879f9;
+}
+
+[data-palette="cobalt"][data-theme="light"] {
+  --bg-base: #eff2fa;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-inset: #e6ebf6;
+  --bg-elev: #ffffff;
+  --border: rgba(15,30,70,0.10);
+  --border-strong: rgba(15,30,70,0.18);
+  --border-faint: rgba(15,30,70,0.06);
+  --text-primary: #0b1020;
+  --text-secondary: #46546f;
+  --text-muted: #74819b;
+  --text-faint: #9eaac2;
+  --accent: #2563eb;
+  --accent-bright: #1d4ed8;
+  --accent-dim: rgba(37,99,235,0.10);
+  --accent-glow: rgba(37,99,235,0.28);
+  --v-crosscheck: #c026d3;
+}
+
+/* ===== PALETTE: SANDSTONE (teal on warm espresso) ===== */
+[data-palette="sandstone"][data-theme="dark"] {
+  --bg-base: #17120d;
+  --bg-raised: #221a12;
+  --bg-card: #281f16;
+  --bg-inset: #1c150e;
+  --bg-elev: #34281c;
+  --border: rgba(255,238,210,0.09);
+  --border-strong: rgba(255,238,210,0.18);
+  --border-faint: rgba(255,238,210,0.05);
+  --text-primary: #f2e9dc;
+  --text-secondary: #b8a88f;
+  --text-muted: #847661;
+  --text-faint: #5b4f3e;
+  --accent: #14b8a6;
+  --accent-bright: #2dd4bf;
+  --accent-dim: rgba(20,184,166,0.15);
+  --accent-glow: rgba(20,184,166,0.4);
+  --v-crosscheck: #a78bfa;
+}
+
+[data-palette="sandstone"][data-theme="light"] {
+  --bg-base: #f6f1e8;
+  --bg-raised: #fffdf9;
+  --bg-card: #fffdf9;
+  --bg-inset: #efe7d8;
+  --bg-elev: #fffdf9;
+  --border: rgba(60,45,25,0.11);
+  --border-strong: rgba(60,45,25,0.20);
+  --border-faint: rgba(60,45,25,0.06);
+  --text-primary: #1f1810;
+  --text-secondary: #5e5040;
+  --text-muted: #8a7c66;
+  --text-faint: #b0a48c;
+  --accent: #0f9488;
+  --accent-bright: #0d7d72;
+  --accent-dim: rgba(15,148,136,0.10);
+  --accent-glow: rgba(15,148,136,0.26);
+  --v-crosscheck: #7c3aed;
+}
+
+/* ===== PALETTE: INDIGO (periwinkle on neutral ink) ===== */
+[data-palette="indigo"][data-theme="dark"] {
+  --bg-base: #0c0d11;
+  --bg-raised: #14151b;
+  --bg-card: #181a22;
+  --bg-inset: #101116;
+  --bg-elev: #21232d;
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.16);
+  --border-faint: rgba(255,255,255,0.05);
+  --text-primary: #e9eaf0;
+  --text-secondary: #a0a2b2;
+  --text-muted: #696c7d;
+  --text-faint: #474a59;
+  --accent: #8b8bff;
+  --accent-bright: #adadff;
+  --accent-dim: rgba(139,139,255,0.16);
+  --accent-glow: rgba(139,139,255,0.42);
+  --v-crosscheck: #2dd4bf;
+}
+
+[data-palette="indigo"][data-theme="light"] {
+  --bg-base: #f5f5f8;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-inset: #ececf2;
+  --bg-elev: #ffffff;
+  --border: rgba(20,20,40,0.10);
+  --border-strong: rgba(20,20,40,0.18);
+  --border-faint: rgba(20,20,40,0.06);
+  --text-primary: #14141b;
+  --text-secondary: #4d4f60;
+  --text-muted: #7a7d90;
+  --text-faint: #a8abbc;
+  --accent: #5754e6;
+  --accent-bright: #4340c9;
+  --accent-dim: rgba(87,84,230,0.10);
+  --accent-glow: rgba(87,84,230,0.28);
+  --v-crosscheck: #0d9488;
+}
+
+/* ===== PALETTE: STEEL (icy blue on deep slate) ===== */
+[data-palette="steel"][data-theme="dark"] {
+  --bg-base: #0c121a;
+  --bg-raised: #131c27;
+  --bg-card: #17222f;
+  --bg-inset: #0e1721;
+  --bg-elev: #1f2e3e;
+  --border: rgba(190,215,245,0.09);
+  --border-strong: rgba(190,215,245,0.18);
+  --border-faint: rgba(190,215,245,0.05);
+  --text-primary: #e5edf5;
+  --text-secondary: #96a8bd;
+  --text-muted: #5e6f84;
+  --text-faint: #435366;
+  --accent: #67b8ff;
+  --accent-bright: #93cdff;
+  --accent-dim: rgba(103,184,255,0.15);
+  --accent-glow: rgba(103,184,255,0.42);
+  --v-crosscheck: #e879f9;
+}
+
+[data-palette="steel"][data-theme="light"] {
+  --bg-base: #eef3f8;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-inset: #e3ebf3;
+  --bg-elev: #ffffff;
+  --border: rgba(15,35,60,0.10);
+  --border-strong: rgba(15,35,60,0.18);
+  --border-faint: rgba(15,35,60,0.06);
+  --text-primary: #0c121a;
+  --text-secondary: #45576a;
+  --text-muted: #738699;
+  --text-faint: #9db0c2;
+  --accent: #2b7fd4;
+  --accent-bright: #1f66b3;
+  --accent-dim: rgba(43,127,212,0.10);
+  --accent-glow: rgba(43,127,212,0.28);
+  --v-crosscheck: #c026d3;
+}
+
+/* ===== KEYFRAME ANIMATIONS ===== */
+@keyframes gt-ring {
+  0% { transform: scale(0.55); opacity: 0.85; }
+  70% { opacity: 0; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+@keyframes gt-node {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+
+@keyframes gt-scan {
+  0% { transform: translateY(-46px); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translateY(46px); opacity: 0; }
+}
+
+@keyframes gt-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gt-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-5px); opacity: 1; }
+}
+
+@keyframes gt-claimin {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes gt-pop {
+  0% { transform: scale(0.55); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes gt-glowpulse {
+  0% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  100% { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes gt-modalin {
+  0% { opacity: 0; transform: scale(0.96) translateY(8px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes gt-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes gt-statusglow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* ===== LEGACY ALIAS VARS (for document/benchmark components still using old names) ===== */
 :root {
-  --background: #faf9f5;
-  --surface: #ffffff;
-  --surface-muted: #f3f1ea;
-  --foreground: #1f1e1d;
-  --foreground-muted: #6b6760;
-  --border: #e8e4d8;
-  --accent: #c96442;
-  --accent-foreground: #ffffff;
-  --user-bubble: #f0ede4;
+  --foreground: var(--text-primary);
+  --foreground-muted: var(--text-secondary);
+  --background: var(--bg-base);
+  --surface: var(--bg-card);
+  --surface-muted: var(--bg-raised);
+  --accent-foreground: #fff;
+  --font-instrument: 'Space Grotesk', sans-serif;
+  --font-dm-mono: 'Geist Mono', monospace;
+  --border: var(--border);
 }
 
-.dark {
-  --background: #262624;
-  --surface: #30302e;
-  --surface-muted: #1f1e1d;
-  --foreground: #f5f4ee;
-  --foreground-muted: #a8a39a;
-  --border: #3d3d3a;
-  --accent: #d97757;
-  --accent-foreground: #1f1e1d;
-  --user-bubble: #3a3936;
+/* Tailwind v4 semantic utility classes for benchmark + document pages */
+@layer utilities {
+  .bg-background { background-color: var(--bg-base); }
+  .bg-surface { background-color: var(--bg-card); }
+  .bg-surface-muted { background-color: var(--bg-raised); }
+  .text-foreground { color: var(--text-primary); }
+  .text-foreground-muted { color: var(--text-secondary); }
+  .border-border { border-color: var(--border); }
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-surface: var(--surface);
-  --color-surface-muted: var(--surface-muted);
-  --color-foreground: var(--foreground);
-  --color-foreground-muted: var(--foreground-muted);
-  --color-border-subtle: var(--border);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-user-bubble: var(--user-bubble);
-
-  /*
-   * Typography stack.
-   *
-   * Default mappings (used by Tailwind's font-sans / font-serif / font-mono):
-   *   - font-sans  → Manrope, a workhorse humanist sans tuned for UI body
-   *   - font-serif → Instrument Serif, editorial display face for titles
-   *   - font-mono  → DM Mono, warmer than the previous Geist Mono
-   *
-   * Extra utilities (font-display, font-instrument, font-grotesk, etc.) are
-   * exposed so individual components can opt in to a different voice
-   * without overriding the base.
-   */
-  --font-sans:
-    var(--font-manrope), var(--font-instrument-sans), ui-sans-serif, system-ui,
-    sans-serif;
-  --font-serif:
-    var(--font-instrument-serif), var(--font-libre-baskerville), ui-serif,
-    Georgia, serif;
-  --font-mono:
-    var(--font-dm-mono), var(--font-space-mono), ui-monospace, monospace;
-
-  --font-instrument: var(--font-instrument-sans), ui-sans-serif, sans-serif;
-  --font-instrument-serif:
-    var(--font-instrument-serif), ui-serif, Georgia, serif;
-  --font-display: var(--font-instrument-serif), ui-serif, Georgia, serif;
-  --font-playfair: var(--font-playfair), ui-serif, Georgia, serif;
-  --font-baskerville:
-    var(--font-libre-baskerville), ui-serif, Georgia, serif;
-  --font-arvo: var(--font-arvo), ui-serif, Georgia, serif;
-
-  --font-grotesk: var(--font-space-grotesk), ui-sans-serif, sans-serif;
-  --font-manrope: var(--font-manrope), ui-sans-serif, sans-serif;
-  --font-avenir: var(--font-avenir-next), ui-sans-serif, sans-serif;
-  --font-tt: var(--font-tt-commons), ui-sans-serif, sans-serif;
-  --font-neue: var(--font-neue-machina), ui-sans-serif, sans-serif;
-  --font-akrobat: var(--font-akrobat), ui-sans-serif, sans-serif;
-  --font-syne: var(--font-syne), ui-sans-serif, sans-serif;
-  --font-poppins: var(--font-poppins), ui-sans-serif, sans-serif;
-  --font-raleway: var(--font-raleway), ui-sans-serif, sans-serif;
-  --font-montserrat: var(--font-montserrat), ui-sans-serif, sans-serif;
-  --font-josefin: var(--font-josefin), ui-sans-serif, sans-serif;
-  --font-violet: var(--font-violet-sans), ui-sans-serif, sans-serif;
-
-  --font-space-mono: var(--font-space-mono), ui-monospace, monospace;
-  --font-bogita: var(--font-bogita-mono), ui-monospace, monospace;
-
-  --font-broadway: var(--font-broadway), ui-serif, serif;
-  --font-vonique: var(--font-vonique), ui-serif, serif;
+/* Remap Tailwind's font-serif utility to Space Grotesk (no serif loaded) */
+.font-serif {
+  font-family: 'Space Grotesk', system-ui, sans-serif !important;
 }
 
+/* ===== BASE STYLES ===== */
+/* Tailwind preflight already provides box-sizing/margin/padding reset */
 html {
-  /*
-   * Base size bump: most of the chat surface used to inherit 16px which
-   * felt cramped in long reading passages. 17px gives roughly a 1.063x
-   * uplift to every `text-sm` / `text-base` site-wide and pushes us
-   * toward a comfortable ~70 char measure when paired with our
-   * existing max-widths.
-   */
-  font-size: 17px;
-}
-
-html,
-body {
-  background: var(--background);
-  color: var(--foreground);
+  font-size: 16px;
 }
 
 body {
-  font-family: var(--font-sans);
-  font-feature-settings: "ss01", "cv01", "cv11";
-  line-height: 1.65;
-  letter-spacing: 0.005em;
+  font-family: var(--font-geist), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-/*
- * Headings adopt the editorial Instrument Serif voice by default. Tighter
- * tracking + tighter line-height so display sizes don't sprawl. Components
- * that want a different look can override with `font-sans` or `font-display`.
- */
-h1,
-h2,
-h3 {
-  font-family: var(--font-serif);
-  letter-spacing: -0.018em;
-  line-height: 1.15;
-}
-
-h4,
-h5,
-h6 {
-  font-family: var(--font-instrument), var(--font-sans);
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-}
-
-/*
- * Form controls inherit the body sans rather than the UA default. Bumped
- * size keeps inputs aligned with the larger root text scale.
- */
-input,
-textarea,
-select,
-button {
-  font-family: inherit;
-  font-size: inherit;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  line-height: 1.5;
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--accent-glow);
+  color: #fff;
 }
 
-/*
- * Accessible focus ring tied to the brand accent. We rely on :focus-visible
- * (not :focus) so mouse users don't get rings on click — only keyboard
- * navigation and assistive tech do. Buttons that already opt out of the
- * default outline via Tailwind get this back automatically.
- */
+/* ===== FOCUS RING ===== */
 :where(button, a, [role="button"], select, summary):focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline: 2px solid var(--accent-glow);
   outline-offset: 2px;
-  border-radius: 0.5rem;
+  border-radius: 6px;
 }
 
 textarea:focus-visible,
@@ -167,22 +430,27 @@ input:focus-visible {
   outline: none;
 }
 
-/* Subtle, claude-style scrollbar */
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
-*::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
-*::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--foreground-muted) 25%, transparent);
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
 }
-*::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--foreground-muted) 45%, transparent);
-  background-clip: padding-box;
-  border: 2px solid transparent;
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* ===== ACCESSIBILITY ===== */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

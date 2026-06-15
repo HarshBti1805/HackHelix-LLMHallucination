@@ -1,6 +1,11 @@
 import type { AuditSummary, ClaimAudit, MessageAudit, Verdict } from "@/types";
 import { extractClaims } from "@/lib/extract";
 import { verifyClaim } from "@/lib/agents";
+import {
+  applyIndependentCheck,
+  crossCheckClaims,
+  deriveIndependentAnswer,
+} from "@/lib/independent";
 
 /**
  * Hard cap on claims verified per chat message. Per ARCHITECTURE.md §5.4 the
@@ -48,17 +53,52 @@ export const MAX_CLAIMS_PER_MESSAGE = 6;
  * limits start to bite and effective wall-clock is closer to a small
  * multiple of one agent latency.
  */
+/**
+ * Optional extras for the audit pipeline.
+ *
+ * `crossCheck` + `originalPrompt` enable the independent re-derivation signal
+ * (MAJOR_CHANGES.md #2): the locked auditor answers `originalPrompt` from
+ * scratch and each claim is compared against that answer, escalating verdicts
+ * the three agents under-flagged. Both must be present; otherwise the pipeline
+ * behaves exactly as before (so eval results and the default chat path are
+ * unchanged).
+ */
+export interface AuditPipelineOptions {
+  crossCheck?: boolean;
+  originalPrompt?: string;
+}
+
 export async function runAuditPipeline(
   content: string,
   maxClaims: number,
+  opts: AuditPipelineOptions = {},
 ): Promise<{ claims: ClaimAudit[]; summary: AuditSummary }> {
   const allClaims = await extractClaims(content);
   const claims = allClaims.slice(0, maxClaims);
 
-  const claimAudits: ClaimAudit[] =
+  let claimAudits: ClaimAudit[] =
     claims.length === 0
       ? []
       : await Promise.all(claims.map((c) => verifyClaim(c)));
+
+  // Independent re-derivation cross-check (opt-in). Runs the second-opinion
+  // derivation in parallel with nothing — it depends only on the original
+  // prompt, so we could start it earlier, but keeping it here avoids an extra
+  // upstream call when extraction yields zero claims.
+  if (
+    opts.crossCheck &&
+    opts.originalPrompt &&
+    opts.originalPrompt.trim() &&
+    claimAudits.length > 0
+  ) {
+    const independentAnswer = await deriveIndependentAnswer(opts.originalPrompt);
+    if (independentAnswer) {
+      const signals = await crossCheckClaims(claims, independentAnswer);
+      claimAudits = claimAudits.map((ca) =>
+        applyIndependentCheck(ca, signals.get(ca.claim.id)),
+      );
+    }
+  }
 
   return {
     claims: claimAudits,
@@ -78,10 +118,12 @@ export async function runAuditPipeline(
 export async function auditMessage(
   messageId: string,
   content: string,
+  opts: AuditPipelineOptions = {},
 ): Promise<MessageAudit> {
   const { claims, summary } = await runAuditPipeline(
     content,
     MAX_CLAIMS_PER_MESSAGE,
+    opts,
   );
   return {
     message_id: messageId,

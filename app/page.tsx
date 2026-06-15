@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type {
   AuditRequestBody,
   ChatMessage,
@@ -19,25 +17,8 @@ import { ClaimList } from "@/components/audit/ClaimList";
 import { SummaryBar } from "@/components/audit/SummaryBar";
 import { failedClaimCount } from "@/components/audit/verdict";
 import { ComparisonSidebar } from "@/components/comparison/ComparisonSidebar";
+import { useTheme, PALETTE_META, type Palette } from "@/components/ThemeProvider";
 
-/**
- * Chat UI inspired by claude.ai's minimal aesthetic.
- * Frontend-only theme toggle (light/dark) persists to localStorage.
- */
-
-/**
- * Providers wired into the chat switcher.
- *
- * All three entries in the `Provider` union are runtime-supported as of
- * IMPROVEMENTS.md Phase B (B.1–B.4 added the Anthropic SDK adapter, the
- * chat-route case, and finally this UI option). The earlier `Provider`
- * narrowing alias was removed once Anthropic landed — the maps below are now
- * exhaustive against the public `Provider` union, so the compiler will fail
- * loudly if a future provider is added to `types.ts` without a switcher entry.
- *
- * Single-model providers (Gemini, Anthropic) collapse the model `<select>`
- * to a static label downstream — no purposeless one-item dropdown.
- */
 const PROVIDER_MODELS: Record<Provider, ChatModel[]> = {
   openai: ["gpt-4o", "gpt-4o-mini"],
   gemini: ["gemini-2.5-flash"],
@@ -50,60 +31,38 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   anthropic: "Anthropic",
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Demo prompts (PROJECT_PLAN.md task 5.1)
-//
-// Three canonical prompts that exercise the three "interesting" audit
-// outcomes. These are surfaced as compact chips above the composer; clicking
-// a chip pastes the prompt into the input but does NOT auto-send, so the
-// presenter can pause on the talking point before pressing Enter.
-//
-// Prompts are chosen empirically from earlier shot-2/shot-3 testing:
-//   - Citation hallucination: Johnson et al. 2021 — gpt-4o reliably
-//     fabricates the study + author list, surfaces as
-//     `likely_hallucination` with low evidence.
-//   - Contested claim:        Tesla milestones — gpt-4o gets some details
-//     right and some wrong, producing per-claim `agents_disagreed` flags
-//     across all three subagents (cleaner than Great Wall length, which
-//     tends to either fully verify or fully contradict).
-//   - Benign truth:           Eiffel Tower height — single numerical
-//     claim, verifies cleanly with no Regenerate button.
-// ─────────────────────────────────────────────────────────────────────────────
-interface DemoPrompt {
-  label: string;
-  prompt: string;
-}
+interface DemoPrompt { label: string; prompt: string; color: string; tag: string }
 const DEMO_PROMPTS: DemoPrompt[] = [
   {
-    label: "Citation hallucination",
-    prompt:
-      "Summarize the findings of Johnson et al. 2021 on intermittent fasting.",
+    label: "Summarize the findings of Johnson et al. 2021 on intermittent fasting.",
+    prompt: "Summarize the findings of Johnson et al. 2021 on intermittent fasting.",
+    color: "var(--v-hallucination)",
+    tag: "citation hallucination",
   },
   {
-    label: "Contested claim",
-    prompt:
-      "Tell me three specific, dated milestones in the history of Tesla, Inc., including the names of the people involved and the cities where the events took place.",
+    label: "Tesla milestones — three specific, dated events.",
+    prompt: "Tell me three specific, dated milestones in the history of Tesla, Inc., including the names of the people involved and the cities where the events took place.",
+    color: "var(--v-contradicted)",
+    tag: "contested claim",
   },
   {
-    label: "Benign truth",
+    label: "How tall is the Eiffel Tower including its antenna?",
     prompt: "How tall is the Eiffel Tower in metres, including its antenna?",
+    color: "var(--v-verified)",
+    tag: "benign truth",
+  },
+  {
+    label: "Who won the 2023 Nobel Prize in Physics and for what?",
+    prompt: "Who won the 2023 Nobel Prize in Physics, and for what?",
+    color: "var(--v-unverified)",
+    tag: "fact check",
   },
 ];
 
-/**
- * Short, locale-aware HH:MM for the message-meta line; the full timestamp
- * goes into the `title` attribute as a hover tooltip so power-users can
- * still see exact ms without the chat surface getting cluttered.
- */
 function formatTime(ts: number): string {
   try {
-    return new Date(ts).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
+    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch { return ""; }
 }
 
 function makeUserMessage(content: string): ChatMessage {
@@ -115,580 +74,49 @@ function makeUserMessage(content: string): ChatMessage {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Verdict presentation tokens (VERDICT_STYLES, formatConfidence, etc.) and
-// the SummaryBar / ClaimRow / AgentSection / ClaimList components were
-// factored out into `components/audit/` at IMPROVEMENTS.md Phase A task
-// A.7-prep so the chat AuditPanel below and the new `/document` report
-// view render the same audit affordances. Imports at the top of this file.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Audit panel components (PROJECT_PLAN.md tasks 3.3–3.7)
-//
-// Layered rendering:
-//   AuditPanel   – per-message container; resolves the loading/error/data
-//                  state and owns the local "expanded claim ids" set (3.6).
-//   SummaryBar   – one-line count of verdict categories above the rows (3.7).
-//   ClaimRow     – one card per claim. Header is a button that toggles
-//                  expansion; details panel renders below when open (3.6).
-//   AgentSection – per-agent breakdown inside an expanded row (3.6).
-//
-// Expansion state is intentionally local to AuditPanel: it does not persist
-// across audit refetches or live in the App-level state map. If a future
-// re-audit replaces the MessageAudit with new claim ids, stale ids in the set
-// simply stop matching anything and become inert.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function AuditSkeleton() {
+// ─── SVGs ────────────────────────────────────────────────────────────────────
+function BrandSVG({ size = 26 }: { size?: number }) {
   return (
-    <div className="mt-3 flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--foreground-muted)]">
-      <span className="flex items-center gap-1">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.3s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.15s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)]" />
-      </span>
-      <span>Auditing claims…</span>
+    <svg width={size} height={size} viewBox="0 0 26 26" fill="none" aria-hidden="true">
+      <circle cx="13" cy="13" r="11.2" stroke="var(--border-strong)" strokeWidth="1"/>
+      <circle cx="13" cy="4.6" r="2.1" fill="var(--v-contradicted)"/>
+      <circle cx="5.7" cy="17.5" r="2.1" fill="var(--accent)"/>
+      <circle cx="20.3" cy="17.5" r="2.1" fill="var(--v-crosscheck)"/>
+      <circle cx="13" cy="13" r="2.6" fill="var(--text-primary)"/>
+      <path d="M13 6.7 13 10.4 M7.5 16.3 11 14.3 M18.5 16.3 15 14.3" stroke="var(--text-muted)" strokeWidth="1"/>
+    </svg>
+  );
+}
+
+function AssistantAvatar() {
+  return (
+    <div style={{
+      flexShrink: 0, width: 30, height: 30, borderRadius: 9,
+      background: "var(--bg-card)", border: "1px solid var(--border)",
+      display: "grid", placeItems: "center",
+    }}>
+      <svg width="17" height="17" viewBox="0 0 26 26" fill="none">
+        <circle cx="13" cy="4.6" r="2" fill="var(--v-contradicted)"/>
+        <circle cx="5.7" cy="17.5" r="2" fill="var(--accent)"/>
+        <circle cx="20.3" cy="17.5" r="2" fill="var(--v-crosscheck)"/>
+        <circle cx="13" cy="13" r="2.4" fill="var(--text-primary)"/>
+      </svg>
     </div>
   );
 }
 
-function AuditError({ message }: { message: string }) {
-  return (
-    <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--foreground-muted)]">
-      <span aria-hidden="true">⚠</span>
-      <span>
-        Audit unavailable
-        <span className="ml-1 text-[var(--foreground-muted)] opacity-70">
-          ({message})
-        </span>
-      </span>
-    </div>
-  );
-}
-
-function AuditEmpty() {
-  return (
-    <div className="mt-3 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--foreground-muted)]">
-      No verifiable claims found in this response.
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Before/after diff (PROJECT_PLAN.md task 4.7)
-//
-// Rendered above the regenerated assistant message body, only when that
-// message has a `regenerates_message_id` link. Reuses the SummaryBar so the
-// pills, colors, and spacing match exactly — the diff is just two summaries
-// side by side with an arrow between them. Each side independently handles
-// its own pending / errored / empty / populated state, because the "after"
-// audit will almost always still be in flight when the diff first mounts.
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface SideAuditState {
-  audit: MessageAudit | undefined;
-  pending: boolean;
-  error: string | undefined;
-}
-
-function BeforeAfterSide({
-  label,
-  state,
-}: {
-  label: string;
-  state: SideAuditState;
-}) {
-  let body: React.ReactNode;
-  if (state.pending) {
-    body = (
-      <span className="italic text-[var(--foreground-muted)]">auditing…</span>
-    );
-  } else if (state.error) {
-    body = (
-      <span className="italic text-[var(--foreground-muted)]">
-        audit unavailable
-      </span>
-    );
-  } else if (!state.audit) {
-    body = (
-      <span className="italic text-[var(--foreground-muted)]">
-        no audit yet
-      </span>
-    );
-  } else if (state.audit.summary.total_claims === 0) {
-    body = (
-      <span className="italic text-[var(--foreground-muted)]">
-        no verifiable claims
-      </span>
-    );
-  } else {
-    body = (
-      <>
-        <span className="text-[10px] text-[var(--foreground-muted)]">
-          {state.audit.summary.total_claims} total
-        </span>
-        <SummaryBar summary={state.audit.summary} />
-      </>
-    );
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
-        {label}:
-      </span>
-      {body}
-    </div>
-  );
-}
-
-interface BeforeAfterDiffProps {
-  before: SideAuditState;
-  after: SideAuditState;
-}
-
-function BeforeAfterDiff({ before, after }: BeforeAfterDiffProps) {
-  return (
-    <div className="mb-3 flex flex-col gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
-        Regeneration audit
-      </span>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <BeforeAfterSide label="Before" state={before} />
-        <span
-          className="text-[var(--foreground-muted)]"
-          aria-hidden="true"
-        >
-          →
-        </span>
-        <BeforeAfterSide label="After" state={after} />
-      </div>
-    </div>
-  );
-}
-
-interface AuditPanelProps {
-  messageId: string;
-  isPending: boolean;
-  audit: MessageAudit | undefined;
-  errorMessage: string | undefined;
-  // Dehallucinate plumbing (PROJECT_PLAN.md tasks 4.4–4.5). Optional so this
-  // component stays usable without a regenerate flow wired up.
-  onDehallucinate?: () => void;
-  isDehallucPending?: boolean;
-  dehallucError?: string;
-}
-
-function AuditPanel({
-  isPending,
-  audit,
-  errorMessage,
-  onDehallucinate,
-  isDehallucPending,
-  dehallucError,
-}: AuditPanelProps) {
-  // Render priority: pending → error → audit (which may be empty).
-  // We prefer "still loading" over "failed" so a stale error from a prior
-  // attempt never appears alongside a fresh in-flight audit.
-  if (isPending) return <AuditSkeleton />;
-  if (errorMessage) return <AuditError message={errorMessage} />;
-  if (!audit) return null;
-  if (audit.claims.length === 0) return <AuditEmpty />;
-
-  // The "Regenerate without hallucinations" button is intentionally hidden
-  // when there's nothing to dehallucinate. Showing it on a fully-verified
-  // message would be a no-op and would dilute the signal that something is
-  // actually wrong.
-  const failed = failedClaimCount(audit);
-  const showRegenerate = failed > 0 && Boolean(onDehallucinate);
-
-  return (
-    <div className="mt-3 flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <SummaryBar summary={audit.summary} />
-        {showRegenerate && (
-          <DehallucinateButton
-            onClick={onDehallucinate!}
-            pending={Boolean(isDehallucPending)}
-            failedCount={failed}
-          />
-        )}
-      </div>
-      {dehallucError && (
-        <div className="rounded-md border border-rose-300/60 bg-rose-50 px-2 py-1 text-[11px] text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
-          Couldn&apos;t build a regeneration prompt: {dehallucError}
-        </div>
-      )}
-      {/* Expansion state lives inside ClaimList — multiple rows can be open
-          at once. Re-mounting AuditPanel (e.g. on a fresh audit) resets the
-          set, so stale claim ids never leak across audits. */}
-      <ClaimList claims={audit.claims} />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Dehallucinate button + modal (PROJECT_PLAN.md tasks 4.4–4.5)
-//
-// The button is a message-level action, not a claim-level action — it lives
-// next to the SummaryBar inside AuditPanel, never inside a ClaimRow.
-// Clicking it kicks off a POST to /api/dehallucinate. The modal opens only
-// after that response lands; while the request is in flight the button shows
-// its own loading state so the user gets instant feedback.
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface DehallucinateButtonProps {
-  onClick: () => void;
-  pending: boolean;
-  failedCount: number;
-}
-
-function DehallucinateButton({
-  onClick,
-  pending,
-  failedCount,
-}: DehallucinateButtonProps) {
-  // Sized to undercut the SummaryBar verdict pills next to it. The
-  // button carries a border + ring affordance the pills don't, so even
-  // at a smaller intrinsic size it still reads as the actionable
-  // element in the row. Dropped to ~9px / px-1.5 / py-[1px] to bring
-  // total height under the pill — accent color does the rest of the
-  // signaling work.
-  const label = pending ? "Building…" : `Dehallucinate (${failedCount})`;
-  return (
-<button
-  type="button"
-  onClick={onClick}
-  disabled={pending}
-  title="Build a grounded prompt that quotes the failed claims and inlines the audit evidence"
-  className="rounded-full border border-[var(--accent)]/50 bg-[var(--accent)]/10 px-3 py-1 text-xs font-semibold tracking-wide leading-none text-[var(--accent)] transition hover:bg-[var(--accent)]/15 disabled:cursor-wait disabled:opacity-60"
->
-  {pending && (
-    <span aria-hidden="true" className="flex items-center gap-1">
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.3s]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)] [animation-delay:-0.15s]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--accent)]" />
-    </span>
-  )}
-  <span>{label}</span>
-</button>
-  );
-}
-
-interface DehallucinateModalProps {
-  open: boolean;
-  suggestedPrompt: string | null;
-  editedPrompt: string;
-  onEdit: (next: string) => void;
-  onCancel: () => void;
-  onSend: () => void;
-}
-
-function DehallucinateModal({
-  open,
-  suggestedPrompt,
-  editedPrompt,
-  onEdit,
-  onCancel,
-  onSend,
-}: DehallucinateModalProps) {
-  // Body-scroll lock + Escape-to-close are mounted in a single effect so
-  // they stay symmetric: both attach when the modal opens, both detach on
-  // unmount or close. Using `document.body.style.overflow` directly is the
-  // pragmatic choice — no library, easy to reason about — but we restore
-  // the *previous* value rather than hardcoding "" so we don't clobber any
-  // page-level overflow setting.
-  useEffect(() => {
-    if (!open) return;
-
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onCancel();
-      }
-    }
-    window.addEventListener("keydown", handleKey);
-
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener("keydown", handleKey);
-    };
-  }, [open, onCancel]);
-
-  if (!open || suggestedPrompt === null) return null;
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="dehalluc-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      {/* Stop propagation on the inner card so click-on-backdrop closes but
-          click-inside-card never does. */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col">
-            <h2
-              id="dehalluc-modal-title"
-              className="text-base font-semibold text-[var(--foreground)]"
-            >
-              Review the regeneration prompt
-            </h2>
-            <p className="mt-1 text-[12px] text-[var(--foreground-muted)]">
-              The auditor built this prompt from the failed claims and their
-              gathered evidence. Edit anything you like — your final version
-              will be sent as your next chat message.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label="Close"
-            className="-mr-1 -mt-1 rounded-md p-1 text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M6 6l12 12M6 18L18 6" />
-            </svg>
-          </button>
-        </div>
-
-        <textarea
-          value={editedPrompt}
-          onChange={(e) => onEdit(e.target.value)}
-          className="min-h-[280px] flex-1 resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] leading-relaxed text-[var(--foreground)] shadow-inner focus:border-[var(--accent)]/60 focus:outline-none"
-          spellCheck={false}
-        />
-
-        <p className="text-[11px] text-[var(--foreground-muted)]">
-          On <span className="font-semibold">Send</span>, this exact text
-          (with your edits) will be sent as your next message and the new
-          response will be re-audited. On{" "}
-          <span className="font-semibold">Cancel</span> nothing happens —
-          your conversation stays as it is.
-        </p>
-
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[12px] font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-muted)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onSend}
-            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--accent-foreground)] transition hover:opacity-90"
-          >
-            Send
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SunIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-    </svg>
-  );
-}
-
-function MoonIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
-
-function SparkIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M12 2l1.8 5.5L19 9.3l-5.2 1.8L12 16l-1.8-5L5 9.3l5.2-1.8L12 2z" />
-      <path d="M19 14l.9 2.6L22 17.5l-2.1.9L19 21l-.9-2.6L16 17.5l2.1-.9L19 14z" />
-    </svg>
-  );
-}
-
-function SendIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 19V5" />
-      <path d="M5 12l7-7 7 7" />
-    </svg>
-  );
-}
-
-function CopyIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function CompareIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 6h7" />
-      <path d="M3 12h7" />
-      <path d="M3 18h7" />
-      <path d="M14 6h7" />
-      <path d="M14 12h7" />
-      <path d="M14 18h7" />
-      <path d="M11.5 4v16" strokeDasharray="2 2" />
-    </svg>
-  );
-}
-
-function ArrowDownIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 5v14" />
-      <path d="m19 12-7 7-7-7" />
-    </svg>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MarkdownLite
-//
-// Some chat models (notably gpt-4o on the "Tesla milestones" demo prompt)
-// emit markdown — `**bold**`, `### headings`, `- ` bullets — while others
-// return plain prose. Rendering raw text with `whitespace-pre-wrap` leaks the
-// asterisks/hashes into the UI. This is a deliberately small renderer (no
-// dependency) that handles the few constructs the chat models actually use:
-//   inline:  **bold**, *italic* / _italic_, `code`
-//   block:   ATX headings (#..######), unordered (-, *, •) and ordered lists,
-//            paragraphs separated by blank lines
-// Anything else falls through as text. We do NOT render raw HTML, so this
-// is safe to feed arbitrary model output.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Markdown renderer ────────────────────────────────────────────────────────
 function renderInline(text: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
-  // Order matters: code first (so backticked content is opaque to other
-  // rules), then bold (greedy on `**`), then italic. The lookarounds keep
-  // single-`*` italic from eating one star of a `**bold**` pair.
-  const re =
-    /(`+)([^`]+?)\1|\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|(?<!\*)\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)|(?<!_)_(?!\s)([^_\n]+?)(?<!\s)_(?!_)/g;
-  let lastIndex = 0;
-  let key = 0;
+  const re = /(`+)([^`]+?)\1|\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|(?<!\*)\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)|(?<!_)_(?!\s)([^_\n]+?)(?<!\s)_(?!_)/g;
+  let lastIndex = 0, key = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > lastIndex) out.push(text.slice(lastIndex, m.index));
     if (m[2] !== undefined) {
-      out.push(
-        <code
-          key={key++}
-          className="rounded bg-[var(--surface-muted)] px-1 py-0.5 font-mono text-[0.9em]"
-        >
-          {m[2]}
-        </code>
-      );
+      out.push(<code key={key++} style={{fontFamily:"'Geist Mono',monospace",fontSize:"0.88em",background:"var(--bg-inset)",padding:"1px 4px",borderRadius:3}}>{m[2]}</code>);
     } else if (m[3] !== undefined || m[4] !== undefined) {
-      out.push(
-        <strong key={key++} className="font-semibold">
-          {m[3] ?? m[4]}
-        </strong>
-      );
+      out.push(<strong key={key++}>{m[3] ?? m[4]}</strong>);
     } else if (m[5] !== undefined || m[6] !== undefined) {
       out.push(<em key={key++}>{m[5] ?? m[6]}</em>);
     }
@@ -703,241 +131,330 @@ function MarkdownLite({ text }: { text: string }) {
   const blocks: React.ReactNode[] = [];
   const listRe = /^\s*([-*•]|\d+\.)\s+(.*)$/;
   const headingRe = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
-  let i = 0;
-  let key = 0;
-
+  let i = 0, key = 0;
   while (i < lines.length) {
     const line = lines[i];
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-
+    if (line.trim() === "") { i++; continue; }
     const heading = headingRe.exec(line);
     if (heading) {
       const level = heading[1].length;
-      const cls =
-        level <= 2
-          ? "mt-4 mb-2 text-base font-semibold first:mt-0"
-          : level === 3
-            ? "mt-3 mb-1.5 text-[15px] font-semibold first:mt-0"
-            : "mt-2 mb-1 text-sm font-semibold first:mt-0";
-      blocks.push(
-        <div key={key++} className={cls}>
-          {renderInline(heading[2])}
-        </div>
-      );
-      i++;
-      continue;
+      const fs = level <= 2 ? 16 : level === 3 ? 14.5 : 13.5;
+      blocks.push(<div key={key++} style={{fontWeight:600,fontSize:fs,margin:"14px 0 6px",fontFamily:"'Space Grotesk',sans-serif"}}>{renderInline(heading[2])}</div>);
+      i++; continue;
     }
-
     if (listRe.test(line)) {
       const ordered = /^\s*\d+\./.test(line);
       const items: string[] = [];
       while (i < lines.length && listRe.test(lines[i])) {
-        const lm = listRe.exec(lines[i])!;
-        items.push(lm[2]);
-        i++;
+        items.push(listRe.exec(lines[i])![2]); i++;
       }
-      const liNodes = items.map((it, idx) => (
-        <li key={idx}>{renderInline(it)}</li>
-      ));
-      blocks.push(
-        ordered ? (
-          <ol
-            key={key++}
-            className="my-2 ml-5 list-decimal space-y-1 first:mt-0 last:mb-0"
-          >
-            {liNodes}
-          </ol>
-        ) : (
-          <ul
-            key={key++}
-            className="my-2 ml-5 list-disc space-y-1 first:mt-0 last:mb-0"
-          >
-            {liNodes}
-          </ul>
-        )
+      const liNodes = items.map((it, idx) => <li key={idx}>{renderInline(it)}</li>);
+      blocks.push(ordered
+        ? <ol key={key++} style={{margin:"8px 0",paddingLeft:20,display:"flex",flexDirection:"column",gap:4}}>{liNodes}</ol>
+        : <ul key={key++} style={{margin:"8px 0",paddingLeft:20,display:"flex",flexDirection:"column",gap:4}}>{liNodes}</ul>
       );
       continue;
     }
-
     const paraLines: string[] = [];
-    while (
-      i < lines.length &&
-      lines[i].trim() !== "" &&
-      !headingRe.test(lines[i]) &&
-      !listRe.test(lines[i])
-    ) {
-      paraLines.push(lines[i]);
-      i++;
+    while (i < lines.length && lines[i].trim() !== "" && !headingRe.test(lines[i]) && !listRe.test(lines[i])) {
+      paraLines.push(lines[i]); i++;
     }
-    blocks.push(
-      <p
-        key={key++}
-        className="my-2 whitespace-pre-wrap break-words first:mt-0 last:mb-0"
-      >
-        {renderInline(paraLines.join("\n"))}
-      </p>
-    );
+    blocks.push(<p key={key++} style={{margin:"6px 0",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{renderInline(paraLines.join("\n"))}</p>);
   }
-
   return <>{blocks}</>;
 }
 
-export default function Home() {
-  // Theme is owned by `next-themes` (see components/ThemeProvider.tsx) so the
-  // <html class="dark"> bootstrapping happens without an inline <script>,
-  // which is what tripped Next 16 / React 19's renderer warning. We track a
-  // local `themeMounted` flag to suppress the toggle's icon during SSR — the
-  // server can't know the user's OS preference, and rendering a sun/moon
-  // before hydration would either flash the wrong icon or warn about a
-  // mismatch.
-  const { resolvedTheme, setTheme } = useTheme();
-  const [themeMounted, setThemeMounted] = useState(false);
-  useEffect(() => {
-    setThemeMounted(true);
-  }, []);
-  const isDark = themeMounted && resolvedTheme === "dark";
+// ─── Audit skeleton ───────────────────────────────────────────────────────────
+function AuditSkeleton() {
+  return (
+    <div style={{padding:"16px 18px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <span style={{position:"relative",width:18,height:18,display:"grid",placeItems:"center"}}>
+          <svg width="18" height="18" viewBox="0 0 18 18" style={{animation:"gt-spin 1.1s linear infinite"}}>
+            <circle cx="9" cy="9" r="7" stroke="var(--accent-dim)" strokeWidth="2" fill="none"/>
+            <path d="M9 2 A7 7 0 0 1 16 9" stroke="var(--accent)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+          </svg>
+        </span>
+        <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--text-secondary)"}}>Auditing claims</span>
+        <div style={{display:"flex",gap:5,marginLeft:2}}>
+          <span style={{width:6,height:6,borderRadius:"50%",background:"var(--v-contradicted)",animation:"gt-node 1.2s ease-in-out infinite",display:"inline-block"}}/>
+          <span style={{width:6,height:6,borderRadius:"50%",background:"var(--accent)",animation:"gt-node 1.2s ease-in-out infinite .25s",display:"inline-block"}}/>
+          <span style={{width:6,height:6,borderRadius:"50%",background:"var(--v-crosscheck)",animation:"gt-node 1.2s ease-in-out infinite .5s",display:"inline-block"}}/>
+        </div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {[0, 0.15, 0.3].map((delay) => (
+          <div key={delay} style={{height:38,borderRadius:9,background:"linear-gradient(90deg,var(--bg-inset) 25%,var(--bg-elev) 50%,var(--bg-inset) 75%)",backgroundSize:"200% 100%",animation:`gt-shimmer 1.4s linear infinite ${delay}s`}}/>
+        ))}
+      </div>
+    </div>
+  );
+}
 
+function AuditError({ message }: { message: string }) {
+  return (
+    <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:8,color:"var(--text-muted)",fontSize:12}}>
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1.5 1.5 12.5 H12.5 Z" stroke="var(--v-contradicted)" strokeWidth="1.2" strokeLinejoin="round"/><path d="M7 5.5 V8.5 M7 10.3 V10.4" stroke="var(--v-contradicted)" strokeWidth="1.3" strokeLinecap="round"/></svg>
+      Audit unavailable ({message})
+    </div>
+  );
+}
+
+function AuditEmpty() {
+  return (
+    <div style={{padding:"12px 16px",color:"var(--text-muted)",fontSize:12}}>
+      No verifiable claims found in this response.
+    </div>
+  );
+}
+
+// ─── Audit panel ──────────────────────────────────────────────────────────────
+interface AuditPanelProps {
+  messageId: string;
+  isPending: boolean;
+  audit: MessageAudit | undefined;
+  errorMessage: string | undefined;
+  onDehallucinate?: () => void;
+  isDehallucPending?: boolean;
+  dehallucError?: string;
+}
+
+function AuditPanel({ isPending, audit, errorMessage, onDehallucinate, isDehallucPending, dehallucError }: AuditPanelProps) {
+  if (isPending) return (
+    <div style={{marginTop:16,border:"1px solid var(--border)",borderRadius:13,background:"var(--bg-raised)",overflow:"hidden",boxShadow:"var(--shadow-card)"}}>
+      <AuditSkeleton/>
+    </div>
+  );
+  if (errorMessage) return (
+    <div style={{marginTop:16,border:"1px solid var(--border)",borderRadius:13,background:"var(--bg-raised)",overflow:"hidden"}}>
+      <AuditError message={errorMessage}/>
+    </div>
+  );
+  if (!audit) return null;
+  if (audit.claims.length === 0) return (
+    <div style={{marginTop:16,border:"1px solid var(--border)",borderRadius:13,background:"var(--bg-raised)",overflow:"hidden"}}>
+      <AuditEmpty/>
+    </div>
+  );
+
+  const failed = failedClaimCount(audit);
+  const showRegen = failed > 0 && Boolean(onDehallucinate);
+
+  return (
+    <div style={{marginTop:16,border:"1px solid var(--border)",borderRadius:13,background:"var(--bg-raised)",overflow:"hidden",boxShadow:"var(--shadow-card)"}}>
+      <SummaryBar
+        summary={audit.summary}
+        failedCount={failed}
+        showDehallucinate={showRegen}
+        isDehallucPending={isDehallucPending}
+        dehallucError={dehallucError}
+        onDehallucinate={onDehallucinate}
+      />
+      <div style={{padding:8,display:"flex",flexDirection:"column",gap:7}}>
+        <ClaimList claims={audit.claims}/>
+      </div>
+    </div>
+  );
+}
+
+// ─── Dehallucinate modal ──────────────────────────────────────────────────────
+interface DehallucinateModalProps {
+  open: boolean;
+  suggestedPrompt: string | null;
+  editedPrompt: string;
+  onEdit: (v: string) => void;
+  onCancel: () => void;
+  onSend: () => void;
+}
+
+function DehallucinateModal({ open, suggestedPrompt, editedPrompt, onEdit, onCancel, onSend }: DehallucinateModalProps) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onCancel(); }};
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [open, onCancel]);
+
+  if (!open || suggestedPrompt === null) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onCancel}
+      style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.6)",backdropFilter:"blur(8px)",padding:"24px 16px"}}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          display:"flex",flexDirection:"column",gap:0,width:"100%",maxWidth:680,maxHeight:"88vh",
+          borderRadius:16,border:"1px solid var(--border-strong)",background:"var(--bg-card)",
+          boxShadow:"var(--shadow-pop)",overflow:"hidden",animation:"gt-modalin .22s ease both",
+        }}
+      >
+        {/* header */}
+        <div style={{display:"flex",alignItems:"flex-start",gap:12,padding:"18px 20px 14px",borderBottom:"1px solid var(--border)"}}>
+          <div style={{display:"grid",placeItems:"center",width:34,height:34,borderRadius:9,background:"color-mix(in srgb, var(--v-hallucination) 14%, transparent)",color:"var(--v-hallucination)",flexShrink:0}}>
+            <svg width="15" height="15" viewBox="0 0 14 14" fill="none"><path d="M7 1.5 1.5 12.5 H12.5 Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/><path d="M7 5.5 V8.5 M7 10.3 V10.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Space Grotesk',sans-serif",fontWeight:600,fontSize:15}}>Review the regeneration prompt</div>
+            <p style={{fontSize:12,lineHeight:1.5,color:"var(--text-secondary)",marginTop:4}}>
+              The auditor built this from the failed claims and their evidence. Edit freely — this will become your next message.
+            </p>
+          </div>
+          <button
+            onClick={onCancel}
+            aria-label="Close"
+            style={{width:26,height:26,display:"grid",placeItems:"center",borderRadius:7,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",color:"var(--text-muted)",flexShrink:0}}
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11"><path d="M2 2 9 9 M9 2 2 9" stroke="currentColor" strokeWidth="1.3"/></svg>
+          </button>
+        </div>
+
+        {/* textarea with fake line numbers */}
+        <div style={{flex:1,display:"flex",minHeight:260,overflow:"hidden"}}>
+          <div style={{width:36,background:"var(--bg-inset)",borderRight:"1px solid var(--border-faint)",padding:"14px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:0,flexShrink:0}}>
+            {Array.from({length: Math.max(editedPrompt.split("\n").length, 8)}, (_, i) => (
+              <div key={i} style={{fontFamily:"'Geist Mono',monospace",fontSize:10,color:"var(--text-faint)",lineHeight:"20px",height:20,textAlign:"center",width:"100%"}}>{i + 1}</div>
+            ))}
+          </div>
+          <textarea
+            value={editedPrompt}
+            onChange={(e) => onEdit(e.target.value)}
+            spellCheck={false}
+            style={{flex:1,resize:"none",border:"none",outline:"none",background:"transparent",color:"var(--text-primary)",fontFamily:"'Geist Mono',monospace",fontSize:12.5,lineHeight:"20px",padding:14,overflowY:"auto"}}
+          />
+        </div>
+
+        {/* footer */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 20px",borderTop:"1px solid var(--border)",background:"var(--bg-inset)"}}>
+          <span style={{fontSize:11.5,color:"var(--text-muted)"}}>On Send, this becomes your next message and the response will be re-audited.</span>
+          <div style={{display:"flex",gap:9}}>
+            <button
+              onClick={onCancel}
+              style={{height:34,padding:"0 14px",borderRadius:9,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",color:"var(--text-secondary)",fontSize:13,fontWeight:500}}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSend}
+              style={{height:34,padding:"0 16px",borderRadius:9,border:"none",background:"var(--accent)",cursor:"pointer",color:"#fff",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:7}}
+            >
+              <svg width="14" height="14" viewBox="0 0 17 17" fill="none"><path d="M8.5 14V3.5M8.5 3.5 4 8M8.5 3.5 13 8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Palette picker dropdown ──────────────────────────────────────────────────
+const PALETTES: Palette[] = ["iris", "aurora", "orchid", "cobalt", "sandstone", "indigo", "steel"];
+
+function PalettePicker() {
+  const { palette, setPalette } = useTheme();
+  const [open, setOpen] = useState(false);
+  const meta = PALETTE_META[palette];
+
+  return (
+    <div style={{position:"relative"}}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Color scheme"
+        style={{display:"flex",alignItems:"center",gap:8,height:32,padding:"0 11px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card)",cursor:"pointer",color:"var(--text-primary)"}}
+      >
+        <span style={{width:12,height:12,borderRadius:"50%",background:meta.color,boxShadow:meta.glow,display:"inline-block"}}/>
+        <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,letterSpacing:"0.03em",color:"var(--text-secondary)"}}>{meta.label}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" style={{opacity:.5}}><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" strokeWidth="1.3" fill="none"/></svg>
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{position:"fixed",inset:0,zIndex:55}}/>
+          <div style={{position:"absolute",top:40,right:0,zIndex:60,width:180,padding:6,background:"var(--bg-elev)",border:"1px solid var(--border-strong)",borderRadius:12,boxShadow:"var(--shadow-pop)",display:"flex",flexDirection:"column",gap:1,animation:"gt-claimin .16s ease both"}}>
+            <div style={{fontFamily:"'Geist Mono',monospace",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:"var(--text-muted)",padding:"5px 8px"}}>Color scheme</div>
+            {PALETTES.map((p) => {
+              const m = PALETTE_META[p];
+              return (
+                <button
+                  key={p}
+                  onClick={() => { setPalette(p); setOpen(false); }}
+                  style={{display:"flex",alignItems:"center",gap:10,height:31,padding:"0 9px",borderRadius:7,border:"none",cursor:"pointer",background:p === palette ? "var(--bg-card)" : "transparent",color:"var(--text-primary)",textAlign:"left"}}
+                >
+                  <span style={{width:13,height:13,borderRadius:"50%",background:m.color,boxShadow:p === palette ? m.glow : "none",flexShrink:0,display:"inline-block"}}/>
+                  <span style={{flex:1,fontSize:12.5}}>{m.label}</span>
+                  {p === palette && (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 5 9 9.5 3.5" stroke={m.color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+export default function Home() {
+  const { theme, toggleTheme } = useTheme();
   const [provider, setProvider] = useState<Provider>("openai");
   const [model, setModel] = useState<ChatModel>("gpt-4o");
+  const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
-
-  // Audit state per ARCHITECTURE.md §7.
-  // Three mutually-exclusive states per assistant message id:
-  //   - id ∈ pendingAudits  → fetch in flight
-  //   - id ∈ audits         → audit complete (claims may be empty)
-  //   - id ∈ auditErrors    → fetch failed; show "audit unavailable"
-  // We track them as separate maps rather than a tagged union so that React's
-  // shallow comparison can update each independently without re-creating the
-  // whole audit panel state on every transition.
+  const [crossCheckEnabled, setCrossCheckEnabled] = useState(true);
   const [audits, setAudits] = useState<Record<string, MessageAudit>>({});
-  const [pendingAudits, setPendingAudits] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [pendingAudits, setPendingAudits] = useState<Set<string>>(() => new Set());
   const [auditErrors, setAuditErrors] = useState<Record<string, string>>({});
-
-  // Dehallucinate state per ARCHITECTURE.md §7. The modal is a single
-  // top-level slot — only one regenerate review can be open at a time
-  // (matches the spec shape and keeps focus management simple).
-  // `dehallucPending` and `dehallucErrors` are message-id-keyed so the
-  // button on each audited message can show its own loading/error state
-  // independently of any other in-flight dehallucinate request.
-  const [dehallucinateModal, setDehallucinateModal] = useState<{
-    open: boolean;
-    messageId: string | null;
-    suggestedPrompt: string | null;
-    editedPrompt: string;
-  }>({
-    open: false,
-    messageId: null,
-    suggestedPrompt: null,
-    editedPrompt: "",
-  });
-  const [dehallucPending, setDehallucPending] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [dehallucErrors, setDehallucErrors] = useState<Record<string, string>>(
-    {},
-  );
-
-  // ───────────────────────────────────────────────────────────────────
-  // Comparison sidebar state.
-  //
-  // `comparisonOpen`   — whether the right-hand split panel is visible.
-  // `comparisonTarget` — which (before, after) message-id pair to diff.
-  //                      Always points at the LATEST regenerated
-  //                      assistant message in the thread, so the sidebar
-  //                      stays anchored to the most recent dehallucinate
-  //                      cycle even if the user keeps chatting.
-  // `autoOpenedFor`    — set of after-message ids we've already
-  //                      auto-opened the sidebar for. Without this, a
-  //                      user who closes the panel would have it pop
-  //                      back open the moment audits re-resolve.
-  // ───────────────────────────────────────────────────────────────────
+  const [dehallucinateModal, setDehallucinateModal] = useState<{open: boolean; messageId: string | null; suggestedPrompt: string | null; editedPrompt: string}>({open: false, messageId: null, suggestedPrompt: null, editedPrompt: ""});
+  const [dehallucPending, setDehallucPending] = useState<Set<string>>(() => new Set());
+  const [dehallucErrors, setDehallucErrors] = useState<Record<string, string>>({});
   const [comparisonOpen, setComparisonOpen] = useState(false);
-  const [comparisonTarget, setComparisonTarget] = useState<{
-    beforeId: string;
-    afterId: string;
-  } | null>(null);
+  const [comparisonTarget, setComparisonTarget] = useState<{beforeId: string; afterId: string} | null>(null);
   const autoOpenedForRef = useRef<Set<string>>(new Set());
-
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const stickyBottomRef = useRef(true);
 
-  function toggleTheme() {
-    setTheme(isDark ? "light" : "dark");
-  }
-
-  function changeProvider(next: Provider) {
+  // Provider cycle
+  function cycleProvider() {
+    const providers = Object.keys(PROVIDER_MODELS) as Provider[];
+    const idx = providers.indexOf(provider);
+    const next = providers[(idx + 1) % providers.length];
     setProvider(next);
     setModel(PROVIDER_MODELS[next][0]);
   }
 
-  // ───────────────────────────────────────────────────────────────────
-  // /benchmark cross-link: consume `?prompt=` query parameter on mount.
-  //
-  // The /benchmark page's "Open in chat ↗" affordance navigates here
-  // with the chosen prompt URL-encoded into a ?prompt= query parameter.
-  // We:
-  //   1. Decode and prefill the composer input with that prompt.
-  //   2. Scroll the textarea into view so it's findable on long pages.
-  //   3. Do NOT steal focus if the user is already typing somewhere
-  //      else — checked via document.activeElement guard.
-  //   4. Do NOT auto-send. The user reviews and presses Send themselves.
-  //   5. Strip the query param from the URL (via history.replaceState)
-  //      so a back/forward navigation doesn't re-trigger this effect.
-  //
-  // We read from `window.location.search` directly rather than
-  // `useSearchParams` because the latter would force this whole client
-  // component to be wrapped in a Suspense boundary at build time
-  // (Next 16 / React 19 requirement). The query param is only ever
-  // meaningful on the client, so a window-side read is sufficient.
-  // ───────────────────────────────────────────────────────────────────
+  // Query param ?prompt=
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const incoming = params.get("prompt");
     if (!incoming) return;
-
     setInput(incoming);
-
-    // Defer DOM reads/writes one frame so the textarea has been
-    // mounted and re-sized to fit the prefilled content.
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
       ta.scrollIntoView({ behavior: "smooth", block: "center" });
       const active = document.activeElement;
-      const userIsTypingElsewhere =
-        active instanceof HTMLElement &&
-        active !== ta &&
-        (active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          active.isContentEditable);
-      if (!userIsTypingElsewhere) {
+      if (!(active instanceof HTMLElement && active !== ta && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable))) {
         ta.focus({ preventScroll: true });
-        // Place cursor at end of the prefilled text so the user can
-        // append/edit immediately.
         const len = ta.value.length;
         ta.setSelectionRange(len, len);
       }
     });
-
-    // Strip the query param so future navigations don't re-trigger
-    // this. history.replaceState updates the URL in place without
-    // touching React Router state or pushing a new history entry.
     params.delete("prompt");
     const remaining = params.toString();
-    const cleanUrl =
-      window.location.pathname + (remaining ? `?${remaining}` : "");
-    window.history.replaceState(null, "", cleanUrl);
+    window.history.replaceState(null, "", window.location.pathname + (remaining ? `?${remaining}` : ""));
   }, []);
 
   // Auto-resize textarea
@@ -945,16 +462,15 @@ export default function Home() {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`;
+    ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
   }, [input]);
 
-  // Track whether user is near the bottom; used to avoid yanking scroll.
+  // Scroll tracking
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      const nearBottom = distance < 140;
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
       stickyBottomRef.current = nearBottom;
       setIsAtBottom(nearBottom);
     };
@@ -964,264 +480,98 @@ export default function Home() {
   }, []);
 
   function scrollToBottom(behavior: ScrollBehavior = "smooth") {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior });
   }
 
-  // Auto-scroll only when user is already near the bottom.
-  useEffect(() => {
-    if (stickyBottomRef.current) {
-      scrollToBottom("smooth");
-    }
-  }, [messages, pending]);
+  useEffect(() => { if (stickyBottomRef.current) scrollToBottom(); }, [messages, pending]);
 
-  // ───────────────────────────────────────────────────────────────────
-  // Auto-open the comparison sidebar when a regeneration's audit lands.
-  //
-  // We watch for the latest assistant message that carries a
-  // `regenerates_message_id`. Once BOTH its own audit (`after`) and the
-  // original message's audit (`before`) are finalized — present in
-  // `audits` or surfaced as an error — we set the comparison target
-  // and pop the panel open. The `autoOpenedForRef` guard ensures this
-  // only fires once per regeneration cycle, so a user who closes the
-  // panel doesn't get it forced back open.
-  //
-  // The effect intentionally does NOT clear `comparisonTarget` when the
-  // user closes the panel — keeping the target lets the header toggle
-  // re-open the same diff later. A new regeneration just overwrites it.
-  // ───────────────────────────────────────────────────────────────────
+  // Auto-open comparison sidebar
   useEffect(() => {
     let latestAfter: ChatMessage | null = null;
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m.role === "assistant" && m.regenerates_message_id) {
-        latestAfter = m;
-        break;
-      }
+      if (m.role === "assistant" && m.regenerates_message_id) { latestAfter = m; break; }
     }
-    if (!latestAfter || !latestAfter.regenerates_message_id) return;
-
-    const afterId = latestAfter.id;
-    const beforeId = latestAfter.regenerates_message_id;
-
-    const beforeReady = Boolean(audits[beforeId] || auditErrors[beforeId]);
-    const afterReady = Boolean(audits[afterId] || auditErrors[afterId]);
-    if (!beforeReady || !afterReady) return;
-
+    if (!latestAfter?.regenerates_message_id) return;
+    const afterId = latestAfter.id, beforeId = latestAfter.regenerates_message_id;
+    if (!audits[beforeId] && !auditErrors[beforeId]) return;
+    if (!audits[afterId] && !auditErrors[afterId]) return;
     if (autoOpenedForRef.current.has(afterId)) return;
     autoOpenedForRef.current.add(afterId);
     setComparisonTarget({ beforeId, afterId });
     setComparisonOpen(true);
   }, [messages, audits, auditErrors]);
 
-  // Global keyboard shortcuts:
-  //   Cmd/Ctrl+K  → focus the composer from anywhere
-  //   Esc         → if composer is focused, clear input and blur
-  // We intentionally scope Esc to only fire when the textarea has focus so
-  // it doesn't fight with native dialog/menu close behavior elsewhere.
+  // ⌘K focus, Esc clear
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const isMod = e.metaKey || e.ctrlKey;
-      if (isMod && (e.key === "k" || e.key === "K")) {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         textareaRef.current?.focus();
         return;
       }
-      if (e.key === "Escape") {
-        const ta = textareaRef.current;
-        if (ta && document.activeElement === ta) {
-          if (ta.value.length > 0) {
-            e.preventDefault();
-            setInput("");
-          } else {
-            ta.blur();
-          }
-        }
+      if (e.key === "Escape" && document.activeElement === textareaRef.current) {
+        if (input.length > 0) { e.preventDefault(); setInput(""); } else textareaRef.current?.blur();
       }
-    }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [input]);
 
   async function copyAssistantMessage(id: string, content: string) {
     try {
       await navigator.clipboard.writeText(content);
       setCopiedMessageId(id);
-      window.setTimeout(() => {
-        setCopiedMessageId((curr) => (curr === id ? null : curr));
-      }, 1600);
-    } catch {
-      setError("Clipboard unavailable in this browser context.");
-    }
+      setTimeout(() => setCopiedMessageId((c) => c === id ? null : c), 1600);
+    } catch { setError("Clipboard unavailable."); }
   }
 
-  // Fire-and-forget audit kickoff. Returns void on purpose: sendMessage must
-  // not await this. The audit may take 10-30s and the user must be free to
-  // send another chat turn while the previous one is still being audited.
-  function requestAudit(messageId: string, content: string) {
-    setPendingAudits((prev) => {
-      const next = new Set(prev);
-      next.add(messageId);
-      return next;
-    });
-    // Clear any prior error/success so a re-audit (future feature) starts clean.
-    setAuditErrors((prev) => {
-      if (!(messageId in prev)) return prev;
-      const next = { ...prev };
-      delete next[messageId];
-      return next;
-    });
-
-    const body: AuditRequestBody = { message_id: messageId, content };
-
-    fetch("/api/audit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
+  function requestAudit(messageId: string, content: string, originalPrompt?: string) {
+    setPendingAudits((prev) => { const s = new Set(prev); s.add(messageId); return s; });
+    setAuditErrors((prev) => { if (!(messageId in prev)) return prev; const n = {...prev}; delete n[messageId]; return n; });
+    const body: AuditRequestBody = { message_id: messageId, content, cross_check: crossCheckEnabled, original_prompt: originalPrompt };
+    fetch("/api/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(async (res) => {
-        if (!res.ok) {
-          const errBody = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(errBody.error ?? `Audit request failed: ${res.status}`);
-        }
+        if (!res.ok) { const e = await res.json().catch(() => ({})) as {error?: string}; throw new Error(e.error ?? `Audit failed: ${res.status}`); }
         return (await res.json()) as MessageAudit;
       })
-      .then((audit) => {
-        setAudits((prev) => ({ ...prev, [messageId]: audit }));
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : "Audit unavailable";
-        console.error("[audit] failed for", messageId, err);
-        setAuditErrors((prev) => ({ ...prev, [messageId]: msg }));
-      })
-      .finally(() => {
-        setPendingAudits((prev) => {
-          if (!prev.has(messageId)) return prev;
-          const next = new Set(prev);
-          next.delete(messageId);
-          return next;
-        });
-      });
+      .then((audit) => setAudits((prev) => ({ ...prev, [messageId]: audit })))
+      .catch((err: unknown) => { setAuditErrors((prev) => ({ ...prev, [messageId]: err instanceof Error ? err.message : "Audit unavailable" })); })
+      .finally(() => setPendingAudits((prev) => { if (!prev.has(messageId)) return prev; const s = new Set(prev); s.delete(messageId); return s; }));
   }
 
-  /**
-   * Find the user message that produced the given assistant message — i.e.
-   * the most recent user turn at or before the assistant message's index.
-   * The dehallucinator needs this to preserve the user's original intent
-   * in the rewrite.
-   */
   function findOriginalUserMessage(assistantId: string): ChatMessage | null {
     const idx = messages.findIndex((m) => m.id === assistantId);
     if (idx < 0) return null;
-    for (let i = idx - 1; i >= 0; i--) {
-      if (messages[i].role === "user") return messages[i];
-    }
+    for (let i = idx - 1; i >= 0; i--) { if (messages[i].role === "user") return messages[i]; }
     return null;
   }
 
-  /**
-   * Kick off a dehallucinate request for an audited assistant message.
-   * On success, opens the review modal pre-filled with the suggested prompt.
-   * On failure, surfaces the error inline next to the button instead of
-   * blocking the chat (mirrors the audit-error UX).
-   */
   function requestDehallucinate(messageId: string) {
     const assistantMsg = messages.find((m) => m.id === messageId);
     const audit = audits[messageId];
     const originalUser = findOriginalUserMessage(messageId);
-
     if (!assistantMsg || !audit || !originalUser) {
-      setDehallucErrors((prev) => ({
-        ...prev,
-        [messageId]: "Missing message, audit, or original user prompt.",
-      }));
+      setDehallucErrors((prev) => ({ ...prev, [messageId]: "Missing message, audit, or original user prompt." }));
       return;
     }
-
-    setDehallucPending((prev) => {
-      const next = new Set(prev);
-      next.add(messageId);
-      return next;
-    });
-    setDehallucErrors((prev) => {
-      if (!(messageId in prev)) return prev;
-      const next = { ...prev };
-      delete next[messageId];
-      return next;
-    });
-
-    const body: DehallucinateRequestBody = {
-      originalUserMessage: originalUser.content,
-      flawedResponse: assistantMsg.content,
-      audit,
-    };
-
-    fetch("/api/dehallucinate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
+    setDehallucPending((prev) => { const s = new Set(prev); s.add(messageId); return s; });
+    setDehallucErrors((prev) => { if (!(messageId in prev)) return prev; const n = {...prev}; delete n[messageId]; return n; });
+    const body: DehallucinateRequestBody = { originalUserMessage: originalUser.content, flawedResponse: assistantMsg.content, audit };
+    fetch("/api/dehallucinate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(async (res) => {
-        if (!res.ok) {
-          const errBody = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(
-            errBody.error ?? `Dehallucinate request failed: ${res.status}`,
-          );
-        }
+        if (!res.ok) { const e = await res.json().catch(() => ({})) as {error?: string}; throw new Error(e.error ?? `Dehallucinate failed: ${res.status}`); }
         return (await res.json()) as DehallucinateResponseBody;
       })
-      .then(({ suggested_prompt }) => {
-        setDehallucinateModal({
-          open: true,
-          messageId,
-          suggestedPrompt: suggested_prompt,
-          editedPrompt: suggested_prompt,
-        });
-      })
-      .catch((err: unknown) => {
-        const msg =
-          err instanceof Error ? err.message : "Dehallucinate failed";
-        console.error("[dehallucinate] failed for", messageId, err);
-        setDehallucErrors((prev) => ({ ...prev, [messageId]: msg }));
-      })
-      .finally(() => {
-        setDehallucPending((prev) => {
-          if (!prev.has(messageId)) return prev;
-          const next = new Set(prev);
-          next.delete(messageId);
-          return next;
-        });
-      });
+      .then(({ suggested_prompt }) => setDehallucinateModal({ open: true, messageId, suggestedPrompt: suggested_prompt, editedPrompt: suggested_prompt }))
+      .catch((err: unknown) => setDehallucErrors((prev) => ({ ...prev, [messageId]: err instanceof Error ? err.message : "Dehallucinate failed" })))
+      .finally(() => setDehallucPending((prev) => { if (!prev.has(messageId)) return prev; const s = new Set(prev); s.delete(messageId); return s; }));
   }
 
   function closeDehallucModal() {
-    setDehallucinateModal({
-      open: false,
-      messageId: null,
-      suggestedPrompt: null,
-      editedPrompt: "",
-    });
+    setDehallucinateModal({ open: false, messageId: null, suggestedPrompt: null, editedPrompt: "" });
   }
 
-  /**
-   * Closes the dehallucinate modal and immediately re-issues the edited
-   * prompt as a normal chat turn (PROJECT_PLAN.md task 4.6).
-   *
-   * Two design choices worth flagging:
-   *   1. We close the modal *before* the network round-trip so the user
-   *      gets instant feedback. The chat-level pending spinner takes over
-   *      from there.
-   *   2. We do NOT introduce a special /api/regenerate endpoint. The
-   *      regenerated turn is just a normal user → assistant turn with one
-   *      extra piece of metadata (`regenerates_message_id`) so the
-   *      before/after diff can find the original. Both `sendMessage` and
-   *      this handler funnel through `sendUserMessage`.
-   */
   function sendDehallucPrompt() {
     const text = dehallucinateModal.editedPrompt;
     const targetId = dehallucinateModal.messageId;
@@ -1230,652 +580,368 @@ export default function Home() {
     void sendUserMessage(text, { regeneratesMessageId: targetId });
   }
 
-  /**
-   * Core chat-turn pipeline shared by the composer and the dehallucinate
-   * modal. Appends a user message → calls /api/chat → appends the
-   * assistant reply → fires /api/audit (non-blocking).
-   *
-   * `opts.regeneratesMessageId`, when set, is stamped on BOTH the new user
-   * message and the assistant reply so either side can render the
-   * before/after diff via the same pointer (task 4.7).
-   */
-  async function sendUserMessage(
-    text: string,
-    opts?: { regeneratesMessageId?: string },
-  ) {
+  async function sendUserMessage(text: string, opts?: { regeneratesMessageId?: string }) {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
-
-    const userMsg: ChatMessage = {
-      ...makeUserMessage(trimmed),
-      regenerates_message_id: opts?.regeneratesMessageId,
-    };
+    const userMsg: ChatMessage = { ...makeUserMessage(trimmed), regenerates_message_id: opts?.regeneratesMessageId };
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
     setPending(true);
     setError(null);
-
     try {
-      const body: ChatRequestBody = {
-        messages: nextMessages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-        provider,
-        model,
-      };
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const errBody = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(errBody.error ?? `Request failed: ${res.status}`);
-      }
+      const body: ChatRequestBody = { messages: nextMessages.map((m) => ({ role: m.role, content: m.content })), provider, model };
+      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) { const e = await res.json().catch(() => ({})) as {error?: string}; throw new Error(e.error ?? `Request failed: ${res.status}`); }
       const data = (await res.json()) as ChatResponseBody;
-      const assistantMsg: ChatMessage = {
-        ...data.message,
-        regenerates_message_id: opts?.regeneratesMessageId,
-      };
+      const assistantMsg: ChatMessage = { ...data.message, regenerates_message_id: opts?.regeneratesMessageId };
       setMessages((prev) => [...prev, assistantMsg]);
-      // Kick off the audit but DO NOT await it — chat must stay unblocked.
-      requestAudit(assistantMsg.id, assistantMsg.content);
+      requestAudit(assistantMsg.id, assistantMsg.content, trimmed);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setError(msg);
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setPending(false);
     }
   }
 
-  async function sendMessage(text: string) {
-    setInput("");
-    await sendUserMessage(text);
-  }
-
-  /**
-   * Demo-chip handler (PROJECT_PLAN.md task 5.1). Pastes the prompt into
-   * the composer and focuses the textarea so the presenter can review or
-   * edit before pressing Enter — explicitly does NOT auto-send.
-   */
-  function loadDemoPrompt(prompt: string) {
-    setInput(prompt);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-    });
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    void sendMessage(input);
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void sendMessage(input);
-    }
-  }
+  function sendMessage(text: string) { setInput(""); void sendUserMessage(text); }
+  function loadDemoPrompt(prompt: string) { setInput(prompt); requestAnimationFrame(() => textareaRef.current?.focus()); }
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }
 
   const hasMessages = messages.length > 0;
-  const shouldReduceMotion = useReducedMotion();
-
-  // Resolve the message objects backing the sidebar's before/after pair.
-  // Done at render time (cheap O(messages) twice) rather than memoized
-  // because `messages` is the same reference until something changes
-  // and React's reconciliation already short-circuits on equal props.
-  const beforeMessage = comparisonTarget
-    ? messages.find((m) => m.id === comparisonTarget.beforeId)
-    : undefined;
-  const afterMessage = comparisonTarget
-    ? messages.find((m) => m.id === comparisonTarget.afterId)
-    : undefined;
   const canShowComparison = Boolean(comparisonTarget);
-  const messageEnter = shouldReduceMotion
-    ? { opacity: 1, y: 0 }
-    : { opacity: 1, y: 0 };
-  const messageInitial = shouldReduceMotion
-    ? { opacity: 1, y: 0 }
-    : { opacity: 0, y: 16 };
+  const beforeMessage = comparisonTarget ? messages.find((m) => m.id === comparisonTarget.beforeId) : undefined;
+  const afterMessage = comparisonTarget ? messages.find((m) => m.id === comparisonTarget.afterId) : undefined;
+
+  // Audit status dot
+  const anyPending = pendingAudits.size > 0;
+  const statusDotStyle: React.CSSProperties = anyPending
+    ? { width: 8, height: 8, borderRadius: "50%", background: "var(--accent)", animation: "gt-statusglow 1.6s ease-in-out infinite", display: "inline-block" }
+    : { width: 8, height: 8, borderRadius: "50%", background: "var(--text-faint)", display: "inline-block" };
+
+  const NAV_ITEMS = [
+    { href: "/document", label: "Document" },
+    { href: "/guardrail", label: "Guardrail" },
+    { href: "/citations", label: "Citations" },
+    { href: "/benchmark", label: "Benchmark" },
+  ];
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-      {/*
-        Outer layout is now a horizontal flex container so the
-        ComparisonSidebar can dock to the right on lg+ viewports without
-        affecting the chat column's vertical layout. The chat column
-        keeps `min-w-0` so its `max-w-3xl` content shrinks gracefully
-        when the sidebar takes half the screen — without min-w-0 the
-        flex item would refuse to compress below its intrinsic
-        text-wrap minimum and trigger horizontal overflow.
-      */}
-      <div className="flex h-full min-w-0 flex-1 flex-col">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-[var(--border)] bg-background/85 px-4 py-3 backdrop-blur-md sm:px-6">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
-            <SparkIcon className="h-4 w-4" />
-          </div>
-          <div className="flex flex-col leading-tight">
-            <span className="font-serif text-[20px] tracking-tight">
-              <span className="italic">Groundtruth</span>
-            </span>
-            <span className="font-[family-name:var(--font-instrument)] text-[12px] tracking-[0.08em] uppercase text-[var(--foreground-muted)]">
-              Multi-agent verifier
-            </span>
-          </div>
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"var(--bg-base)",color:"var(--text-primary)"}}>
+
+      {/* ===== COCKPIT HEADER ===== */}
+      <header style={{position:"sticky",top:0,zIndex:40,display:"flex",alignItems:"center",gap:13,height:56,padding:"0 16px",background:"color-mix(in srgb, var(--bg-base) 86%, transparent)",backdropFilter:"blur(14px)",borderBottom:"1px solid var(--border)",flexShrink:0}}>
+        {/* brand */}
+        <div style={{display:"flex",alignItems:"center",gap:11,flexShrink:0}}>
+          <BrandSVG size={26}/>
+          <span style={{fontFamily:"'Space Grotesk',sans-serif",fontWeight:600,fontSize:16,letterSpacing:"-0.01em"}}>Groundtruth</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/*
-            Cross-link to the dedicated /document audit view (IMPROVEMENTS.md
-            Phase A task A.10). Sits next to the provider switcher so it's
-            findable but visually subordinate to the chat composer — the
-            chat is still the primary surface; document audit is a
-            separate workflow a user opts into deliberately.
-          */}
-          <Link
-            href="/document"
-            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
-            aria-label="Audit a document"
-            title="Open the document audit view"
-          >
-            Audit a document
-          </Link>
-          <Link
-            href="/benchmark"
-            className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-serif text-[18px] italic text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--foreground)] sm:inline-flex"
-            aria-label="Open benchmark"
-            title="See the empirical 3-provider hallucination benchmark"
-          >
-            Benchmark
-          </Link>
-          <div className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-1 py-1 text-xs sm:flex">
-            <select
-              value={provider}
-              onChange={(e) => changeProvider(e.target.value as Provider)}
-              className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
-              aria-label="Provider"
+        {/* nav */}
+        <nav style={{display:"flex",alignItems:"center",gap:4,marginLeft:6}}>
+          {NAV_ITEMS.map((n) => (
+            <Link
+              key={n.href}
+              href={n.href}
+              style={{fontSize:12.5,color:"var(--text-secondary)",padding:"6px 11px",borderRadius:7,background:"transparent",border:"none",cursor:"pointer",fontFamily:"'Geist',sans-serif",textDecoration:"none",transition:"color .15s"}}
             >
-              {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
-                <option key={p} value={p} className="bg-[var(--surface)]">
-                  {PROVIDER_LABEL[p]}
-                </option>
-              ))}
-            </select>
-            <span className="text-[var(--foreground-muted)]">/</span>
-            {PROVIDER_MODELS[provider].length > 1 ? (
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value as ChatModel)}
-                className="cursor-pointer rounded-full bg-transparent px-2 py-1 text-xs text-[var(--foreground)] outline-none hover:bg-[var(--surface-muted)]"
-                aria-label="Model"
-              >
-                {PROVIDER_MODELS[provider].map((m) => (
-                  <option key={m} value={m} className="bg-[var(--surface)]">
-                    {m}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span
-                className="rounded-full px-2 py-1 text-xs text-[var(--foreground-muted)]"
-                aria-label="Model"
-              >
-                {PROVIDER_MODELS[provider][0]}
-              </span>
-            )}
-          </div>
+              {n.label}
+            </Link>
+          ))}
+        </nav>
 
-          {/*
-            Comparison-sidebar toggle. Only rendered once the user has
-            triggered at least one regeneration (`canShowComparison`),
-            since otherwise there's nothing to compare. Hidden below
-            `lg` to match the sidebar's own breakpoint — the diff view
-            is a desktop affordance.
-          */}
-          {canShowComparison && (
-            <motion.button
-              type="button"
-              onClick={() => setComparisonOpen((v) => !v)}
-              aria-pressed={comparisonOpen}
-              aria-label={
-                comparisonOpen
-                  ? "Hide regeneration comparison"
-                  : "Show regeneration comparison"
-              }
-              title={
-                comparisonOpen
-                  ? "Hide regeneration comparison"
-                  : "Show regeneration comparison"
-              }
-              className={`hidden h-9 items-center gap-1.5 rounded-full border px-3 font-[family-name:var(--font-instrument)] text-[12px] tracking-wide transition lg:inline-flex ${
-                comparisonOpen
-                  ? "border-[var(--accent)]/60 bg-[var(--accent)]/10 text-[var(--accent)]"
-                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] hover:border-[var(--accent)]/40 hover:text-[var(--foreground)]"
-              }`}
-              whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
-              whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
-            >
-              <CompareIcon className="h-3.5 w-3.5" />
-              <span>{comparisonOpen ? "Hide diff" : "Show diff"}</span>
-            </motion.button>
+        <div style={{flex:1}}/>
+
+        {/* provider selector */}
+        <div style={{position:"relative"}}>
+          <button
+            onClick={() => setProviderDropdownOpen((v) => !v)}
+            style={{display:"flex",alignItems:"center",gap:8,height:32,padding:"0 11px",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",color:"var(--text-primary)"}}
+          >
+            <span style={{width:7,height:7,borderRadius:"50%",background:"var(--v-verified)",boxShadow:"0 0 6px var(--v-verified)",display:"inline-block"}}/>
+            <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11.5,letterSpacing:"0.02em"}}>{PROVIDER_LABEL[provider]}</span>
+            <span style={{color:"var(--text-faint)",fontSize:10}}>/</span>
+            <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11.5,color:"var(--text-secondary)"}}>{model}</span>
+            <svg width="10" height="10" viewBox="0 0 10 10" style={{opacity:.5}}><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" strokeWidth="1.3" fill="none"/></svg>
+          </button>
+          {providerDropdownOpen && (
+            <>
+              <div onClick={() => setProviderDropdownOpen(false)} style={{position:"fixed",inset:0,zIndex:55}}/>
+              <div style={{position:"absolute",top:40,right:0,zIndex:60,width:200,padding:6,background:"var(--bg-elev)",border:"1px solid var(--border-strong)",borderRadius:12,boxShadow:"var(--shadow-pop)",animation:"gt-claimin .16s ease both"}}>
+                {(Object.entries(PROVIDER_MODELS) as [Provider, ChatModel[]][]).flatMap(([p, models]) =>
+                  models.map((m) => (
+                    <button
+                      key={`${p}-${m}`}
+                      onClick={() => { setProvider(p); setModel(m); setProviderDropdownOpen(false); }}
+                      style={{display:"flex",alignItems:"center",gap:10,width:"100%",height:31,padding:"0 9px",borderRadius:7,border:"none",cursor:"pointer",background:provider === p && model === m ? "var(--bg-card)" : "transparent",color:"var(--text-primary)",textAlign:"left"}}
+                    >
+                      <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11.5,flex:1}}>{PROVIDER_LABEL[p]}</span>
+                      <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-secondary)"}}>{m}</span>
+                      {provider === p && model === m && (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 5 9 9.5 3.5" stroke="var(--accent)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
           )}
-
-          <motion.button
-            type="button"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-            title={`Switch to ${isDark ? "light" : "dark"} mode`}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
-            whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
-            whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
-          >
-            {/*
-              Hold the icon back until next-themes hydrates so we don't render
-              the wrong glyph (or trigger a hydration warning) for users on
-              the non-default OS preference. The wrapper keeps the button
-              size stable so layout doesn't jitter on mount.
-            */}
-            <span className="flex h-4 w-4 items-center justify-center">
-              {themeMounted ? (
-                isDark ? (
-                  <SunIcon className="h-4 w-4" />
-                ) : (
-                  <MoonIcon className="h-4 w-4" />
-                )
-              ) : null}
-            </span>
-          </motion.button>
         </div>
+
+        {/* cross-check toggle */}
+        <button
+          onClick={() => setCrossCheckEnabled((v) => !v)}
+          aria-label="Toggle cross-check"
+          style={{display:"flex",alignItems:"center",gap:7,height:32,padding:"0 11px",background:crossCheckEnabled ? "color-mix(in srgb, var(--v-crosscheck) 12%, transparent)" : "var(--bg-card)",border:`1px solid ${crossCheckEnabled ? "color-mix(in srgb, var(--v-crosscheck) 40%, transparent)" : "var(--border)"}`,borderRadius:8,cursor:"pointer",color:crossCheckEnabled ? "var(--v-crosscheck)" : "var(--text-muted)"}}
+        >
+          <span style={{width:7,height:7,borderRadius:"50%",background:crossCheckEnabled ? "var(--v-crosscheck)" : "var(--text-faint)",boxShadow:crossCheckEnabled ? "0 0 6px var(--v-crosscheck)" : "none",display:"inline-block"}}/>
+          <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,letterSpacing:"0.06em",textTransform:"uppercase"}}>Cross-check</span>
+        </button>
+
+        {/* audit status */}
+        <div
+          title={anyPending ? "Audit in progress" : "Idle"}
+          style={{width:32,height:32,display:"grid",placeItems:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card)"}}
+        >
+          <span style={statusDotStyle}/>
+        </div>
+
+        {/* palette picker */}
+        <PalettePicker/>
+
+        {/* theme toggle */}
+        <button
+          onClick={toggleTheme}
+          aria-label="Toggle theme"
+          style={{width:32,height:32,display:"grid",placeItems:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card)",cursor:"pointer",color:"var(--text-secondary)",fontSize:14}}
+        >
+          {theme === "dark" ? "☽" : "☀"}
+        </button>
+
+        {/* comparison toggle */}
+        {canShowComparison && (
+          <button
+            onClick={() => setComparisonOpen((v) => !v)}
+            aria-label={comparisonOpen ? "Hide comparison" : "Show comparison"}
+            style={{display:"flex",alignItems:"center",gap:7,height:32,padding:"0 11px",background:comparisonOpen ? "color-mix(in srgb, var(--accent) 14%, transparent)" : "var(--bg-card)",border:`1px solid ${comparisonOpen ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--border)"}`,borderRadius:8,cursor:"pointer",color:comparisonOpen ? "var(--accent)" : "var(--text-muted)"}}
+          >
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 7.5 H13 M9.5 4 13 7.5 9.5 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,letterSpacing:"0.03em"}}>Diff</span>
+          </button>
+        )}
       </header>
 
-      {/* Mobile provider/model row */}
-      <div className="flex items-center justify-center gap-1 border-b border-[var(--border)] bg-background px-4 py-2 sm:hidden">
-        <select
-          value={provider}
-          onChange={(e) => changeProvider(e.target.value as Provider)}
-          className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
-          aria-label="Provider"
-        >
-          {(Object.keys(PROVIDER_MODELS) as Provider[]).map((p) => (
-            <option key={p} value={p}>
-              {PROVIDER_LABEL[p]}
-            </option>
-          ))}
-        </select>
-        {PROVIDER_MODELS[provider].length > 1 ? (
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value as ChatModel)}
-            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs"
-            aria-label="Model"
-          >
-            {PROVIDER_MODELS[provider].map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span
-            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--foreground-muted)]"
-            aria-label="Model"
-          >
-            {PROVIDER_MODELS[provider][0]}
-          </span>
-        )}
-      </div>
+      {/* ===== MAIN CONTENT + SIDEBAR ===== */}
+      <div style={{flex:1,display:"flex",minHeight:0}}>
+        <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,position:"relative"}}>
 
-      {/* Conversation / welcome */}
-      <main
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(201,100,66,0.06),transparent_42%)] dark:bg-[radial-gradient(circle_at_top,rgba(217,119,87,0.07),transparent_45%)]"
-      >
-        <AnimatePresence mode="wait" initial={false}>
+          {/* EMPTY STATE */}
           {!hasMessages ? (
-            <motion.div
-              key="welcome"
-              initial={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
-              animate={messageEnter}
-              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -14 }}
-              transition={{ duration: 0.28, ease: "easeOut" }}
-              className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-6 text-center"
-            >
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm">
-                <SparkIcon className="h-6 w-6" />
-              </div>
-              <h2 className="mb-3 font-serif text-4xl tracking-tight text-[var(--foreground)] sm:text-5xl">
-                How can I <span className="italic">help</span> you today?
-              </h2>
-              <p className="mb-8 max-w-md text-[16px] leading-relaxed text-[var(--foreground-muted)]">
-                Ask anything. Every assistant reply is fact-checked by three
-                independent verifier agents.
-              </p>
+            <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px 28px",position:"relative",overflow:"auto"}}>
+              <div style={{position:"absolute",inset:0,backgroundImage:"radial-gradient(circle at 50% 38%, var(--accent-dim), transparent 55%)",pointerEvents:"none"}}/>
 
-              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-                {[
-                  "Summarize the findings of Johnson et al. 2021 on intermittent fasting",
-                  "Who won the 2023 Nobel Prize in Physics, and for what?",
-                  "What is the population of Lisbon as of 2024?",
-                  "Explain the Riemann hypothesis in plain English",
-                ].map((suggestion) => (
-                  <motion.button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => sendMessage(suggestion)}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-sm text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]"
-                    whileHover={shouldReduceMotion ? undefined : { y: -1.5 }}
-                    whileTap={shouldReduceMotion ? undefined : { scale: 0.995 }}
+              {/* hero mark */}
+              <div style={{position:"relative",width:128,height:128,display:"grid",placeItems:"center",marginBottom:30}}>
+                <span style={{position:"absolute",width:104,height:104,borderRadius:"50%",border:"1px solid var(--accent)",opacity:.18,animation:"gt-ring 3.4s ease-out infinite",display:"block"}}/>
+                <span style={{position:"absolute",width:104,height:104,borderRadius:"50%",border:"1px solid var(--accent)",opacity:.18,animation:"gt-ring 3.4s ease-out infinite 1.13s",display:"block"}}/>
+                <span style={{position:"absolute",width:104,height:104,borderRadius:"50%",border:"1px solid var(--accent)",opacity:.18,animation:"gt-ring 3.4s ease-out infinite 2.26s",display:"block"}}/>
+                <svg width="128" height="128" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+                  <circle cx="64" cy="64" r="52" stroke="var(--border)" strokeWidth="1"/>
+                  <circle cx="64" cy="64" r="34" stroke="var(--border-faint)" strokeWidth="1"/>
+                  <path d="M64 22 L64 58 M30 84 L57 68 M98 84 L71 68" stroke="var(--text-faint)" strokeWidth="1.4"/>
+                  <line x1="64" y1="22" x2="30" y2="84" stroke="var(--accent)" strokeWidth="1" opacity="0.25"/>
+                  <line x1="30" y1="84" x2="98" y2="84" stroke="var(--accent)" strokeWidth="1" opacity="0.25"/>
+                  <line x1="98" y1="84" x2="64" y2="22" stroke="var(--accent)" strokeWidth="1" opacity="0.25"/>
+                  <circle cx="64" cy="22" r="6" fill="var(--v-contradicted)" style={{animation:"gt-node 2.6s ease-in-out infinite"}}/>
+                  <circle cx="30" cy="84" r="6" fill="var(--accent)" style={{animation:"gt-node 2.6s ease-in-out infinite .8s"}}/>
+                  <circle cx="98" cy="84" r="6" fill="var(--v-crosscheck)" style={{animation:"gt-node 2.6s ease-in-out infinite 1.6s"}}/>
+                  <circle cx="64" cy="64" r="8" fill="var(--bg-base)" stroke="var(--text-primary)" strokeWidth="2"/>
+                  <circle cx="64" cy="64" r="2.6" fill="var(--text-primary)"/>
+                </svg>
+                <span style={{position:"absolute",width:88,height:1,background:"linear-gradient(90deg,transparent,var(--accent-bright),transparent)",animation:"gt-scan 3s ease-in-out infinite",boxShadow:"0 0 8px var(--accent-glow)",display:"block"}}/>
+              </div>
+
+              <div style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,letterSpacing:"0.22em",textTransform:"uppercase",color:"var(--text-muted)",marginBottom:16}}>Multi-agent hallucination auditor</div>
+              <h1 style={{fontFamily:"'Space Grotesk',sans-serif",fontWeight:600,fontSize:42,lineHeight:1.05,letterSpacing:"-0.02em",textAlign:"center",maxWidth:620,marginBottom:14}}>Three agents.<br/>One ground truth.</h1>
+              <p style={{fontSize:15,lineHeight:1.55,color:"var(--text-secondary)",textAlign:"center",maxWidth:480,marginBottom:34}}>Every response is fact-checked in parallel by three independent verifier agents — catching fabricated citations, wrong numbers, and contested claims.</p>
+
+              {/* suggestion cards */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12,width:"100%",maxWidth:620}}>
+                {DEMO_PROMPTS.map((d) => (
+                  <button
+                    key={d.tag}
+                    onClick={() => sendMessage(d.prompt)}
+                    style={{textAlign:"left",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:11,padding:"16px 16px 15px",cursor:"pointer",position:"relative",overflow:"hidden",transition:"border-color .18s,transform .18s"}}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-strong)"; (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-2px)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLButtonElement).style.transform = ""; }}
                   >
-                    {suggestion}
-                  </motion.button>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+                      <span style={{width:7,height:7,borderRadius:2,background:d.color,display:"inline-block"}}/>
+                      <span style={{fontFamily:"'Geist Mono',monospace",fontSize:9.5,letterSpacing:"0.12em",textTransform:"uppercase",color:"var(--text-muted)"}}>{d.tag}</span>
+                    </div>
+                    <div style={{fontSize:13.5,lineHeight:1.4,color:"var(--text-primary)"}}>{d.label}</div>
+                  </button>
                 ))}
               </div>
-            </motion.div>
+            </div>
           ) : (
-            <motion.div
-              key="thread"
-              initial={shouldReduceMotion ? undefined : { opacity: 0, y: 12 }}
-              animate={messageEnter}
-              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
-              className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6"
-            >
-            {messages.map((m) =>
-              m.role === "user" ? (
-                <motion.div
-                  key={m.id}
-                  initial={messageInitial}
-                  animate={messageEnter}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="flex justify-end"
-                >
-                  <div
-                    className="group max-w-[85%] rounded-2xl bg-[var(--user-bubble)] px-4 py-3 text-[15px] leading-relaxed text-[var(--foreground)]"
-                    title={new Date(m.timestamp).toLocaleString()}
-                  >
-                    <div className="whitespace-pre-wrap break-words">
+            /* CHAT THREAD */
+            <div ref={scrollRef} id="gt-thread" style={{flex:1,minHeight:0,overflowY:"auto",padding:"28px 0 14px"}}>
+              <div style={{maxWidth:760,margin:"0 auto",padding:"0 24px",display:"flex",flexDirection:"column",gap:26}}>
+
+                {messages.map((m) => m.role === "user" ? (
+                  <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
+                    <div style={{maxWidth:"78%",background:"var(--accent)",color:"#fff",padding:"11px 15px",borderRadius:"14px 14px 4px 14px",fontSize:14.5,lineHeight:1.5}}>
                       {m.content}
                     </div>
-                    <div className="mt-1 text-right text-[10px] text-[var(--foreground-muted)] opacity-0 transition-opacity group-hover:opacity-100">
-                      {formatTime(m.timestamp)}
-                    </div>
+                    <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10,color:"var(--text-faint)",paddingRight:4}}>{formatTime(m.timestamp)}</span>
                   </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={m.id}
-                  initial={messageInitial}
-                  animate={messageEnter}
-                  transition={{ duration: 0.22, ease: "easeOut" }}
-                  className="flex gap-3"
-                >
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
-                    <SparkIcon className="h-3.5 w-3.5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      {m.provider ? (
-                        <div
-                          className="text-[11px] font-medium uppercase tracking-wide text-[var(--foreground-muted)]"
-                          title={new Date(m.timestamp).toLocaleString()}
+                ) : (
+                  <div key={m.id} style={{display:"flex",gap:13}}>
+                    <AssistantAvatar/>
+                    <div style={{flex:1,minWidth:0}}>
+                      {/* meta row */}
+                      <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:9}}>
+                        <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-secondary)"}}>{m.provider ?? provider}</span>
+                        <span style={{width:3,height:3,borderRadius:"50%",background:"var(--text-faint)",display:"inline-block"}}/>
+                        <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-secondary)"}}>{m.model ?? model}</span>
+                        <span style={{width:3,height:3,borderRadius:"50%",background:"var(--text-faint)",display:"inline-block"}}/>
+                        <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-faint)"}}>{formatTime(m.timestamp)}</span>
+                        <div style={{flex:1}}/>
+                        <button
+                          onClick={() => copyAssistantMessage(m.id, m.content)}
+                          aria-label="Copy"
+                          style={{display:"flex",alignItems:"center",gap:5,height:24,padding:"0 9px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",color:"var(--text-muted)",fontSize:11}}
                         >
-                          {m.provider} · {m.model}
-                          <span className="ml-1.5 normal-case opacity-70">
-                            · {formatTime(m.timestamp)}
-                          </span>
-                        </div>
-                      ) : (
-                        <span />
-                      )}
-                      <motion.button
-                        type="button"
-                        onClick={() => copyAssistantMessage(m.id, m.content)}
-                        className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-[2px] text-[4px] font-medium tracking-wide leading-none text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/35 hover:text-[var(--foreground)]"
-                        whileHover={shouldReduceMotion ? undefined : { y: -1 }}
-                        whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
-                        aria-label="Copy assistant response"
-                        title="Copy response"
-                      >
-                        {copiedMessageId === m.id ? (
-                          <>
-                            <CheckIcon className="h-4 w-4" />
-                            <span>Copied</span>
-                          </>
-                        ) : (
-                          <>
-                              <CopyIcon className="h-4 w-4" />
-                            <span>Copy</span>
-                          </>
-                        )}
-                      </motion.button>
-                    </div>
-                    {m.regenerates_message_id && (
-                      <BeforeAfterDiff
-                        before={{
-                          audit: audits[m.regenerates_message_id],
-                          pending: pendingAudits.has(m.regenerates_message_id),
-                          error: auditErrors[m.regenerates_message_id],
-                        }}
-                        after={{
-                          audit: audits[m.id],
-                          pending: pendingAudits.has(m.id),
-                          error: auditErrors[m.id],
-                        }}
+                          <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><rect x="3.2" y="3.2" width="6.3" height="6.3" rx="1.4" stroke="currentColor" strokeWidth="1.1"/><path d="M2.5 7.2 V2.5 H7.2" stroke="currentColor" strokeWidth="1.1"/></svg>
+                          {copiedMessageId === m.id ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                      {/* response body */}
+                      <div style={{fontSize:14.5,lineHeight:1.62,color:"var(--text-primary)"}}>
+                        <MarkdownLite text={m.content}/>
+                      </div>
+                      {/* audit panel */}
+                      <AuditPanel
+                        messageId={m.id}
+                        isPending={pendingAudits.has(m.id)}
+                        audit={audits[m.id]}
+                        errorMessage={auditErrors[m.id]}
+                        onDehallucinate={() => requestDehallucinate(m.id)}
+                        isDehallucPending={dehallucPending.has(m.id)}
+                        dehallucError={dehallucErrors[m.id]}
                       />
-                    )}
-                    <div className="text-[15px] leading-relaxed text-[var(--foreground)]">
-                      <MarkdownLite text={m.content} />
                     </div>
-                    <AuditPanel
-                      messageId={m.id}
-                      isPending={pendingAudits.has(m.id)}
-                      audit={audits[m.id]}
-                      errorMessage={auditErrors[m.id]}
-                      onDehallucinate={() => requestDehallucinate(m.id)}
-                      isDehallucPending={dehallucPending.has(m.id)}
-                      dehallucError={dehallucErrors[m.id]}
-                    />
                   </div>
-                </motion.div>
-              )
-            )}
+                ))}
 
-            <AnimatePresence>
-              {pending && (
-                <motion.div
-                  initial={messageInitial}
-                  animate={messageEnter}
-                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="flex gap-3"
-                >
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-foreground)]">
-                  <SparkIcon className="h-3.5 w-3.5" />
-                </div>
-                <div className="flex items-center gap-1.5 pt-2">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.3s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)] [animation-delay:-0.15s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--foreground-muted)]" />
-                </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                {/* thinking loader */}
+                {pending && (
+                  <div style={{display:"flex",gap:13}}>
+                    <AssistantAvatar/>
+                    <div style={{display:"flex",alignItems:"center",gap:6,height:30}}>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:"var(--text-muted)",animation:"gt-bounce 1.3s ease-in-out infinite",display:"inline-block"}}/>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:"var(--text-muted)",animation:"gt-bounce 1.3s ease-in-out infinite .18s",display:"inline-block"}}/>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:"var(--text-muted)",animation:"gt-bounce 1.3s ease-in-out infinite .36s",display:"inline-block"}}/>
+                    </div>
+                  </div>
+                )}
 
-            <AnimatePresence>
-              {error && (
-                <motion.div
-                  initial={shouldReduceMotion ? undefined : { opacity: 0, y: 8 }}
-                  animate={messageEnter}
-                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="rounded-xl border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-                >
-                  {error}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            </motion.div>
+                {error && (
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderRadius:10,border:"1px solid color-mix(in srgb, var(--v-hallucination) 40%, transparent)",background:"color-mix(in srgb, var(--v-hallucination) 10%, transparent)",color:"var(--v-hallucination)",fontSize:13}}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5 1.5 12.5 H12.5 Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/><path d="M7 5.5 V8.5 M7 10.3 V10.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                    {error}
+                  </div>
+                )}
+
+              </div>
+            </div>
           )}
-        </AnimatePresence>
-      </main>
 
-      {/* Composer */}
-      <div className="border-t border-[var(--border)] bg-background/90 px-4 pb-4 pt-3 backdrop-blur sm:px-6">
-        <form
-          onSubmit={handleSubmit}
-          className="mx-auto w-full max-w-3xl"
-        >
-          {/*
-            Demo-prompt chips (PROJECT_PLAN.md task 5.1).
-            Paste into the input but DO NOT auto-send — the user presses
-            Send themselves so the demo flow looks natural and they have
-            a beat to set up the talking point. Visually secondary by
-            design: small, muted, sits above the composer, never the
-            dominant element.
-          */}
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground-muted)]">
-              Demo:
-            </span>
-            {DEMO_PROMPTS.map((demo) => (
-              <motion.button
-                key={demo.label}
-                type="button"
-                onClick={() => loadDemoPrompt(demo.prompt)}
-                disabled={pending}
-                title={demo.prompt}
-                className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
-                whileHover={shouldReduceMotion ? undefined : { y: -1 }}
-                whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
+          {/* ===== COMPOSER ===== */}
+          <div style={{padding:"14px 24px 22px",background:"linear-gradient(to top, var(--bg-base) 62%, transparent)",flexShrink:0}}>
+            <div style={{maxWidth:760,margin:"0 auto"}}>
+              {/* demo chips */}
+              <div style={{display:"flex",gap:7,marginBottom:10,flexWrap:"wrap"}}>
+                {DEMO_PROMPTS.map((d) => (
+                  <button
+                    key={d.tag}
+                    onClick={() => loadDemoPrompt(d.prompt)}
+                    disabled={pending}
+                    style={{display:"flex",alignItems:"center",gap:6,height:27,padding:"0 11px",borderRadius:999,background:"var(--bg-card)",border:"1px solid var(--border)",cursor:"pointer",color:"var(--text-secondary)",fontSize:11.5}}
+                  >
+                    <span style={{width:6,height:6,borderRadius:"50%",background:d.color,display:"inline-block"}}/>
+                    {d.tag}
+                  </button>
+                ))}
+              </div>
+              {/* input */}
+              <div
+                style={{position:"relative",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:15,padding:"6px 6px 6px 16px",display:"flex",alignItems:"flex-end",gap:10,transition:"border-color .2s,box-shadow .2s"}}
               >
-                {demo.label}
-              </motion.button>
-            ))}
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={pending}
+                  placeholder={hasMessages ? "Reply to Groundtruth…" : "Ask anything…"}
+                  aria-label="Message composer"
+                  style={{flex:1,resize:"none",border:"none",outline:"none",background:"transparent",color:"var(--text-primary)",fontFamily:"'Geist',sans-serif",fontSize:14.5,lineHeight:1.5,padding:"9px 0",maxHeight:140}}
+                />
+                <button
+                  onClick={() => sendMessage(input)}
+                  disabled={pending || !input.trim()}
+                  aria-label="Send"
+                  style={{flexShrink:0,width:38,height:38,borderRadius:11,border:"none",cursor:!input.trim() || pending ? "not-allowed" : "pointer",display:"grid",placeItems:"center",background:input.trim() && !pending ? "var(--accent)" : "var(--bg-elev)",color:input.trim() && !pending ? "#fff" : "var(--text-faint)",transition:"background .18s",opacity:pending ? 0.5 : 1}}
+                >
+                  <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><path d="M8.5 14V3.5M8.5 3.5 4 8M8.5 3.5 13 8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              </div>
+              {/* hints */}
+              <div style={{display:"flex",gap:16,marginTop:9,padding:"0 4px"}}>
+                <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-faint)"}}><span style={{color:"var(--text-muted)"}}>Enter</span> send</span>
+                <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-faint)"}}><span style={{color:"var(--text-muted)"}}>Shift+Enter</span> newline</span>
+                <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-faint)"}}><span style={{color:"var(--text-muted)"}}>⌘K</span> focus</span>
+              </div>
+            </div>
           </div>
-          <div className="group relative flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-[0_1px_0_rgba(0,0,0,0.04)] transition focus-within:border-[var(--accent)]/50 focus-within:shadow-lg">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                hasMessages
-                  ? "Reply to Groundtruth…"
-                  : "Ask anything — ⌘/Ctrl+K to jump here anytime"
-              }
-              rows={1}
-              disabled={pending}
-              aria-label="Message composer"
-              className="max-h-60 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-[1.6] text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] focus:outline-none disabled:opacity-60"
-            />
-            <motion.button
-              type="submit"
-              disabled={pending || !input.trim()}
-              aria-label="Send message"
-              className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              whileHover={shouldReduceMotion ? undefined : { scale: 1.04 }}
-              whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+
+          {/* scroll-to-bottom button */}
+          {!isAtBottom && hasMessages && (
+            <button
+              onClick={() => { stickyBottomRef.current = true; setIsAtBottom(true); scrollToBottom(); }}
+              aria-label="Jump to latest"
+              style={{position:"fixed",bottom:110,right:comparisonOpen ? 370 : 24,zIndex:30,display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:999,border:"1px solid var(--border)",background:"var(--bg-elev)",cursor:"pointer",color:"var(--text-secondary)",fontSize:12,boxShadow:"var(--shadow-card)"}}
             >
-              <SendIcon className="h-4 w-4" />
-            </motion.button>
-          </div>
-          <p className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[11px] text-[var(--foreground-muted)]">
-            <span>Audited by three verifier agents.</span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                Enter
-              </kbd>
-              send
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                Shift+Enter
-              </kbd>
-              newline
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                ⌘/Ctrl+K
-              </kbd>
-              focus
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] bg-[var(--surface)] px-1 font-mono text-[10px]">
-                Esc
-              </kbd>
-              clear
-            </span>
-          </p>
-        </form>
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2 V11 M3 7.5 6.5 11 10 7.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Latest
+            </button>
+          )}
+
+        </main>
+
+        {/* ===== COMPARISON SIDEBAR ===== */}
+        <ComparisonSidebar
+          open={comparisonOpen && Boolean(comparisonTarget)}
+          beforeMessage={beforeMessage}
+          afterMessage={afterMessage}
+          beforeAudit={comparisonTarget ? audits[comparisonTarget.beforeId] : undefined}
+          afterAudit={comparisonTarget ? audits[comparisonTarget.afterId] : undefined}
+          beforePending={comparisonTarget ? pendingAudits.has(comparisonTarget.beforeId) : false}
+          afterPending={comparisonTarget ? pendingAudits.has(comparisonTarget.afterId) : false}
+          beforeError={comparisonTarget ? auditErrors[comparisonTarget.beforeId] : undefined}
+          afterError={comparisonTarget ? auditErrors[comparisonTarget.afterId] : undefined}
+          onClose={() => setComparisonOpen(false)}
+        />
       </div>
-      </div>
-      {/* End chat column. The ComparisonSidebar docks to its right on
-          lg+ viewports and is hidden below that breakpoint (the inline
-          `BeforeAfterDiff` already handles narrow widths). */}
 
-      <ComparisonSidebar
-        open={comparisonOpen && Boolean(comparisonTarget)}
-        beforeMessage={beforeMessage}
-        afterMessage={afterMessage}
-        beforeAudit={
-          comparisonTarget ? audits[comparisonTarget.beforeId] : undefined
-        }
-        afterAudit={
-          comparisonTarget ? audits[comparisonTarget.afterId] : undefined
-        }
-        beforePending={
-          comparisonTarget
-            ? pendingAudits.has(comparisonTarget.beforeId)
-            : false
-        }
-        afterPending={
-          comparisonTarget
-            ? pendingAudits.has(comparisonTarget.afterId)
-            : false
-        }
-        beforeError={
-          comparisonTarget ? auditErrors[comparisonTarget.beforeId] : undefined
-        }
-        afterError={
-          comparisonTarget ? auditErrors[comparisonTarget.afterId] : undefined
-        }
-        onClose={() => setComparisonOpen(false)}
-      />
-
-      <AnimatePresence>
-        {!isAtBottom && hasMessages && (
-          <motion.button
-            type="button"
-            initial={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
-            animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
-            exit={shouldReduceMotion ? undefined : { opacity: 0, y: 18 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            onClick={() => {
-              stickyBottomRef.current = true;
-              setIsAtBottom(true);
-              scrollToBottom("smooth");
-            }}
-            className="fixed bottom-28 right-4 z-30 inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--foreground)] shadow-lg sm:right-6"
-            aria-label="Jump to latest message"
-          >
-            <ArrowDownIcon className="h-3.5 w-3.5" />
-            <span>Latest</span>
-          </motion.button>
-        )}
-      </AnimatePresence>
-
+      {/* ===== DEHALLUCINATE MODAL ===== */}
       <DehallucinateModal
         open={dehallucinateModal.open}
         suggestedPrompt={dehallucinateModal.suggestedPrompt}
         editedPrompt={dehallucinateModal.editedPrompt}
-        onEdit={(next) =>
-          setDehallucinateModal((prev) => ({ ...prev, editedPrompt: next }))
-        }
+        onEdit={(v) => setDehallucinateModal((p) => ({ ...p, editedPrompt: v }))}
         onCancel={closeDehallucModal}
         onSend={sendDehallucPrompt}
       />

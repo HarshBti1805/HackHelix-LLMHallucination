@@ -14,49 +14,32 @@ import Link from "next/link";
  */
 export function DocumentHero() {
   return (
-    <header className="border-b border-[var(--border)] bg-background">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 pt-7 pb-8 sm:px-6 sm:pt-10 sm:pb-10">
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href="/"
-            className="group flex items-center gap-2 text-[12px] font-[family-name:var(--font-instrument)] uppercase tracking-[0.16em] text-[var(--foreground-muted)] transition hover:text-[var(--foreground)]"
-          >
-            <span
-              aria-hidden="true"
-              className="inline-block transition-transform group-hover:-translate-x-0.5"
-            >
-              ←
-            </span>
-            <span>Back to Groundtruth</span>
-          </Link>
-
-          <div className="hidden items-center gap-3 text-[11px] font-[family-name:var(--font-dm-mono)] uppercase tracking-[0.14em] text-[var(--foreground-muted)] sm:flex">
-            <span>OpenAI · gpt-4o-mini</span>
-            <span aria-hidden="true" className="opacity-40">
-              ◆
-            </span>
-            <span>3 subagents / claim</span>
-            <span aria-hidden="true" className="opacity-40">
-              ◆
-            </span>
-            <span>cap 25</span>
-          </div>
+    <header style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-base)" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, gap: 12 }}>
+        <Link
+          href="/"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-geist-mono, monospace)", letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)", textDecoration: "none" }}
+        >
+          ← Back to Groundtruth
+        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, fontFamily: "var(--font-geist-mono, monospace)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+          <span>OpenAI · gpt-4o-mini</span>
+          <span style={{ opacity: 0.4 }}>◆</span>
+          <span>3 subagents / claim</span>
+          <span style={{ opacity: 0.4 }}>◆</span>
+          <span>cap 25</span>
         </div>
-
-        <div className="flex flex-col gap-3">
-          <span className="font-[family-name:var(--font-dm-mono)] text-[11px] uppercase tracking-[0.32em] text-[var(--accent)]">
-            01 — Document Audit
-          </span>
-          <h1 className="font-serif text-[44px] leading-[1.02] tracking-tight text-[var(--foreground)] sm:text-[64px]">
-            Find the <span className="italic">truth</span> hiding inside
-            <br className="hidden sm:block" /> any text you trust.
-          </h1>
-          <p className="max-w-2xl text-[16px] leading-relaxed text-[var(--foreground-muted)] sm:text-[17px]">
-            Drop in a document and three independent verifier agents will
-            comb every factual claim against live evidence — surfacing
-            citations that look real, but aren't.
-          </p>
-        </div>
+      </div>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px 36px", display: "flex", flexDirection: "column", gap: 12 }}>
+        <span style={{ fontFamily: "var(--font-geist-mono, monospace)", fontSize: 10, letterSpacing: "0.28em", textTransform: "uppercase", color: "var(--accent)" }}>
+          01 — Document Audit
+        </span>
+        <h1 style={{ fontFamily: "var(--font-space-grotesk, sans-serif)", fontWeight: 600, fontSize: "clamp(32px, 5vw, 56px)", lineHeight: 1.05, letterSpacing: "-0.02em", color: "var(--text-primary)", margin: 0 }}>
+          Find the <em style={{ fontStyle: "italic", fontWeight: 500 }}>truth</em> hiding inside any text you trust.
+        </h1>
+        <p style={{ maxWidth: 640, fontSize: 15, lineHeight: 1.65, color: "var(--text-secondary)", margin: 0 }}>
+          Drop in a document and three independent verifier agents will comb every factual claim against live evidence — surfacing citations that look real, but aren't.
+        </p>
       </div>
     </header>
   );

@@ -31,7 +31,15 @@ These are non-negotiable. Do not "refactor" them away.
 
 5. **Evidence is gathered once, reused everywhere.** When a subagent searches and finds evidence, that evidence is attached to the claim audit object and available to the dehallucinator. Do not re-search in `/api/dehallucinate`.
 
-6. **In-memory state only.** No database, no Redis, no persistence. Conversation history and audit results live in React state on the client, passed back to API routes as needed.
+6. **In-memory state only.** No database, no Redis, no persistence. Conversation history and audit results live in React state on the client, passed back to API routes as needed. (The #9 review workspace keeps reviewer decisions in React state and makes the **exported audit trail** the durable artifact — still no server-side persistence.)
+
+### Sanctioned extensions (deliberate exceptions, per MAJOR_CHANGES.md)
+
+These extend — never replace — the core pipeline. The three-agent web-audit path is untouched and remains the default.
+
+- **#2 Independent re-derivation (`lib/independent.ts`).** This is a *pre/post-step signal*, **not a fourth verifier subagent** — rule 3 still holds (three agents, parallel, isolated). The locked auditor independently answers the user's original prompt without seeing the chat model's response, and the cross-check only ever escalates a verdict in the more-cautious direction; it never invents a verdict alone. Opt-in via `AuditRequestBody.cross_check` + `original_prompt`; absent on the default path so eval results are unchanged.
+- **#10 Groundedness (`lib/groundedness.ts`).** A separate "is this answer faithful to *provided* context?" check that deliberately does NOT search the web. Different verdict axis (`GroundingVerdict`), different endpoint (`/api/guardrail`).
+- **#8 Citation checker (`lib/citations.ts` + `lib/bib.ts`).** Verifies references against structured scholarly indices (Crossref / Semantic Scholar), not Tavily — the one place where "evidence" means a real bibliographic record, not a web snippet.
 
 ---
 
@@ -52,6 +60,20 @@ These are non-negotiable. Do not "refactor" them away.
 | `lib/dehallucinate.ts` | Build the rewrite prompt string from state | Send it |
 | `lib/cache.ts` | Optional file-based cache for dev (keyed by input hash) | Be used in production |
 | `types.ts` | Shared TypeScript types | Contain any logic |
+
+### Extension modules (post-launch; see MAJOR_CHANGES.md)
+
+| File | Does | Does NOT |
+|---|---|---|
+| `lib/independent.ts` | #2 Independent re-derivation: locked auditor answers the *original prompt* from scratch, cross-checks each claim, escalates verdicts | Add a 4th verifier subagent; search the web |
+| `lib/prompts/independent.ts` | Prompts for the independent answerer + cross-checker | Contain logic |
+| `lib/groundedness.ts` | #10 RAG guardrail: grade each claim for faithfulness to operator-provided context | Search the web; touch the 3-agent path |
+| `app/api/guardrail/route.ts` | Thin wrapper over `checkGroundedness` | Business logic |
+| `lib/citations.ts` | #8 Citation checker: extract references → match against bibliographic indices | Web search; bib HTTP calls (delegates to `lib/bib.ts`) |
+| `lib/bib.ts` | Crossref + Semantic Scholar HTTP clients → `CitationCandidate[]` | Any LLM logic |
+| `app/api/check-citations/route.ts` | Thin wrapper over `checkCitations` | Business logic |
+| `app/guardrail/page.tsx` · `app/citations/page.tsx` | Standalone tool UIs | Call LLMs directly |
+| `components/document/ReviewWorkspace.tsx` | #9 Compliance review: assign/sign-off claims, export audit trail (in-memory) | Persist anything server-side |
 
 ---
 

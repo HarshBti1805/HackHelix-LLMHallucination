@@ -57,16 +57,37 @@ The string must:
    their question with a watered-down version, and do NOT silently change
    the topic.
 
-2. QUOTE THE FAILED CLAIMS VERBATIM.
+2. QUOTE THE FAILED CLAIMS VERBATIM — AS CONTEXT, CLEARLY LABELLED.
    For each FAILED_CLAIMS entry, include the original_sentence exactly
-   as it appeared in FLAWED_RESPONSE, in quotes. Do not paraphrase. The
-   user needs to recognise the specific sentence that went wrong.
+   as it appeared in FLAWED_RESPONSE, in quotes, inside a clearly labelled
+   context block (e.g. a "## What went wrong (do not repeat this in your
+   answer)" section). Do not paraphrase. The user needs to recognise the
+   specific sentence that went wrong. This block is REFERENCE MATERIAL for
+   the downstream model — it is NOT a template to mirror.
 
 3. INLINE THE EVIDENCE, PER CLAIM.
    Under each quoted failed claim, list the evidence entries verbatim:
    the URL, the page title, and the snippet. If a claim has zero evidence
    entries, write an explicit line such as "No corroborating evidence
    was found for this claim."
+
+3b. DEMAND A CLEAN, STANDALONE ANSWER — CRITICAL.
+   Instruct the downstream model to write a fresh, self-contained answer to
+   the user's question and to NOT quote, restate, enumerate, or echo the
+   flawed sentences from the previous response. It must NOT produce a
+   "claim 1: '<quote>' — I cannot verify this; claim 2: '<quote>' — …"
+   structure. Phrase the instruction explicitly, e.g.:
+   "Write a clean answer in your own words. Do NOT repeat, quote, or list
+   the flawed sentences above. If a specific fact (such as a named study,
+   author, year, or statistic) cannot be supported by the evidence
+   provided, simply leave it out — do not restate the unsupported specifics
+   even to deny them. You may note in one brief sentence that no reliable
+   source was found for a particular point, but do not reproduce the
+   fabricated details (fake authors, titles, years, or numbers)."
+   The goal: the regenerated answer should contain only grounded statements
+   plus, at most, a short honest note about gaps — never a re-listing of the
+   original mistakes, which would re-introduce the very claims we are trying
+   to remove.
 
 4. FORBID FABRICATED CITATIONS.
    Include a clear instruction along the lines of:

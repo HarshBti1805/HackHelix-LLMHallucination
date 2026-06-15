@@ -18,6 +18,7 @@ import { VerdictDistribution } from "@/components/document/VerdictDistribution";
 import { AuditingProgress } from "@/components/document/AuditingProgress";
 import { SourceViewer } from "@/components/document/SourceViewer";
 import { RevisionsModal } from "@/components/document/RevisionsModal";
+import { ReviewWorkspace } from "@/components/document/ReviewWorkspace";
 
 /**
  * Dedicated document-audit report view (IMPROVEMENTS.md Phase A,
@@ -179,10 +180,10 @@ export default function DocumentAuditPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-background text-foreground">
+    <div style={{ minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)", display: "flex", flexDirection: "column" }}>
       <DocumentHero />
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-4 pb-16 pt-8 sm:px-6 sm:pt-10">
+      <main style={{ maxWidth: 1100, margin: "0 auto", width: "100%", flex: 1, padding: "40px 24px 80px", display: "flex", flexDirection: "column", gap: 40 }}>
         <DocumentDropzone
           text={text}
           filename={filename}
@@ -302,6 +303,8 @@ function DocumentReport({ audit }: { audit: DocumentAudit }) {
           )}
         </section>
       </div>
+
+      {hasClaims && <ReviewWorkspace audit={audit} />}
     </div>
   );
 }

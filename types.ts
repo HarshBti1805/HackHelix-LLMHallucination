@@ -102,6 +102,39 @@ export interface ClaimAudit {
   agreement_score: number;
   agents_disagreed: boolean;
   per_agent_reports: AgentReport[];
+  /**
+   * Optional independent cross-check signal (MAJOR_CHANGES.md #2).
+   *
+   * Produced by a SEPARATE pre-step — not a fourth verifier subagent (the
+   * three-agent rule in CLAUDE.md still holds). The locked auditor answers
+   * the user's ORIGINAL question from scratch, without ever seeing the chat
+   * model's response, and each extracted claim is compared against that
+   * independent answer. When the independent answer contradicts a claim the
+   * three agents marked `verified`/`unverified_plausible`, aggregation
+   * escalates the verdict one severity step and records `escalated: true`.
+   *
+   * Only present when the audit was run with cross-checking enabled
+   * (`AuditRequestBody.cross_check` + a non-empty `original_prompt`). Absent
+   * on the existing default path, so eval results and prior behavior are
+   * unchanged.
+   */
+  independent_check?: IndependentCheck;
+}
+
+/**
+ * How the independent re-derivation relates to a single claim.
+ *   - "supports":    the independent answer asserts the same fact.
+ *   - "contradicts": the independent answer asserts something incompatible.
+ *   - "absent":      the independent answer neither supports nor contradicts.
+ */
+export type IndependentStance = "supports" | "contradicts" | "absent";
+
+export interface IndependentCheck {
+  stance: IndependentStance;
+  /** One-line rationale grounded in the independent answer. */
+  note: string;
+  /** True when this cross-check changed the three-agent consensus verdict. */
+  escalated: boolean;
 }
 
 export interface AuditSummary {
@@ -161,6 +194,15 @@ export interface ChatResponseBody {
 export interface AuditRequestBody {
   message_id: string;
   content: string;
+  /**
+   * The user's original question that produced `content`. Required to run
+   * the independent cross-check (MAJOR_CHANGES.md #2) — the auditor answers
+   * THIS, not `content`, from scratch. Optional + ignored unless
+   * `cross_check` is true.
+   */
+  original_prompt?: string;
+  /** Opt into the independent re-derivation cross-check signal. */
+  cross_check?: boolean;
 }
 
 export interface DehallucinateRequestBody {
@@ -242,6 +284,106 @@ export interface DehallucinateDocumentRequestBody {
 }
 
 export type DehallucinateDocumentResponseBody = DocumentRevisions;
+
+// ---- Groundedness / RAG guardrail (MAJOR_CHANGES.md #10) ----
+
+/**
+ * Whether a claim in an answer is supported by the user-provided context.
+ *   - "grounded":     the context directly supports the claim.
+ *   - "ungrounded":   the context does not mention / support the claim
+ *                     (the claim may still be true in the world — it just
+ *                     isn't backed by the provided source).
+ *   - "contradicted": the context asserts something incompatible.
+ *
+ * This is a DIFFERENT axis from the web-audit `Verdict`. The guardrail does
+ * not consult the web; it asks only "is this answer faithful to the source
+ * material the operator handed us?" — the canonical RAG faithfulness check.
+ */
+export type GroundingVerdict = "grounded" | "ungrounded" | "contradicted";
+
+export interface GroundedClaim {
+  claim: Claim;
+  verdict: GroundingVerdict;
+  confidence: number; // 0..1
+  rationale: string;
+  /** Verbatim span from the provided context that supports/contradicts the
+   *  claim, or "" when none was found. Never fabricated. */
+  supporting_quote: string;
+}
+
+export interface GroundednessSummary {
+  total_claims: number;
+  grounded: number;
+  ungrounded: number;
+  contradicted: number;
+}
+
+export interface GroundednessAudit {
+  /** Human label for the answer being checked (e.g. "(pasted answer)"). */
+  source_label: string;
+  claims: GroundedClaim[];
+  summary: GroundednessSummary;
+}
+
+export interface GuardrailRequestBody {
+  /** The model output (RAG answer, chatbot reply, generated text) to check. */
+  answer: string;
+  /** The trusted source / knowledge-base text the answer must be faithful to. */
+  context: string;
+}
+
+export type GuardrailResponseBody = GroundednessAudit;
+
+// ---- Citation / reference checker (MAJOR_CHANGES.md #8) ----
+
+/**
+ *   - "verified":  a real matching work was found in a bibliographic index.
+ *   - "not_found": no plausible match exists — likely a fabricated citation.
+ *   - "uncertain": candidates exist but none clearly matches the cited
+ *                  author/year/title (could be real-but-obscure or wrong).
+ */
+export type CitationStatus = "verified" | "not_found" | "uncertain";
+
+export interface CitationCandidate {
+  title: string;
+  authors: string;
+  year: string;
+  venue: string;
+  url: string;
+  source: "crossref" | "semanticscholar" | "arxiv";
+}
+
+export interface CitationCheck {
+  /** The citation-type claim the reference was pulled from. */
+  claim: Claim;
+  /** The reference as stated in the text (author/year/title/venue). */
+  cited_reference: string;
+  status: CitationStatus;
+  confidence: number; // 0..1
+  rationale: string;
+  /** The candidate the matcher judged the best match (if any). */
+  best_match?: CitationCandidate;
+  /** All candidates returned by the bibliographic indices, for transparency. */
+  candidates: CitationCandidate[];
+}
+
+export interface CitationSummary {
+  total: number;
+  verified: number;
+  not_found: number;
+  uncertain: number;
+}
+
+export interface CitationReport {
+  claims: CitationCheck[];
+  summary: CitationSummary;
+}
+
+export interface CheckCitationsRequestBody {
+  text: string;
+}
+
+export type CheckCitationsResponseBody = CitationReport;
 
 // ---- Errors ----
 
