@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { openaiChat, type OpenAIChatModel } from "@/lib/providers/openai";
-import { geminiChat, type GeminiChatModel } from "@/lib/providers/gemini";
+import {
+  openaiChat,
+  openaiChatStream,
+  type OpenAIChatModel,
+} from "@/lib/providers/openai";
+import {
+  geminiChat,
+  geminiChatStream,
+  type GeminiChatModel,
+} from "@/lib/providers/gemini";
 import {
   anthropicChat,
+  anthropicChatStream,
   type AnthropicChatModel,
 } from "@/lib/providers/anthropic";
 import type {
@@ -56,6 +65,45 @@ export async function POST(req: NextRequest) {
       { error: "`model` is required." },
       { status: 400 },
     );
+  }
+
+  // D1: streaming branch. Returns a text/plain body of token deltas. The audit
+  // is triggered client-side once the stream completes; this route stays a pure
+  // chat dispatcher (CLAUDE.md — /api/chat does not audit).
+  if (body.stream) {
+    let iterator: AsyncIterable<string>;
+    switch (provider) {
+      case "openai":
+        iterator = openaiChatStream(messages, model as OpenAIChatModel);
+        break;
+      case "gemini":
+        iterator = geminiChatStream(messages, model as GeminiChatModel);
+        break;
+      case "anthropic":
+        iterator = anthropicChatStream(messages, model as AnthropicChatModel);
+        break;
+    }
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for await (const delta of iterator) {
+            controller.enqueue(encoder.encode(delta));
+          }
+          controller.close();
+        } catch (err) {
+          console.error("[/api/chat] stream error:", err);
+          controller.error(err);
+        }
+      },
+    });
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+      },
+    });
   }
 
   try {

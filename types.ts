@@ -185,6 +185,13 @@ export interface ChatRequestBody {
   messages: { role: "user" | "assistant"; content: string }[];
   provider: Provider;
   model: ChatModel;
+  /**
+   * When true, `/api/chat` streams the reply as a `text/plain` body of token
+   * deltas instead of returning a `ChatResponseBody` JSON object (D1). The
+   * client assembles the full text and assigns the message id locally. The
+   * audit path is unchanged — it runs once the stream completes.
+   */
+  stream?: boolean;
 }
 
 export interface ChatResponseBody {
@@ -435,6 +442,66 @@ export interface InterrogateResponseBody {
    * or re-searching — keeping an anti-hallucination tool honest about its own
    * explanations.
    */
+  abstained: boolean;
+}
+
+// ---- B1: Challenge the verdict with your own source ----
+
+/**
+ * How a piece of user-supplied evidence bears on a claim.
+ *   - "supports":     the user's evidence backs the claim.
+ *   - "contradicts":  the user's evidence is incompatible with the claim.
+ *   - "insufficient": the evidence doesn't actually address the claim.
+ */
+export type ChallengeStance = "supports" | "contradicts" | "insufficient";
+
+/**
+ * Request to challenge a claim's verdict with the reviewer's OWN evidence
+ * (POST /api/challenge). The reviewer pastes a source/excerpt they believe the
+ * audit missed; the locked auditor re-judges the claim against THAT text only.
+ *
+ * This respects CLAUDE.md rule 5 (no re-search): the evidence is supplied by
+ * the user, not fetched from the web. The result is ADVISORY — it never mutates
+ * the stored `ClaimAudit`; the UI surfaces it as a "you challenged this" turn.
+ */
+export interface ChallengeRequestBody {
+  claim_audit: ClaimAudit;
+  /** The reviewer's pasted evidence text (an excerpt, abstract, quote, etc.). */
+  user_evidence: string;
+  /** Optional URL the evidence came from, shown for provenance. */
+  source_url?: string;
+}
+
+export interface ChallengeResponseBody {
+  stance: ChallengeStance;
+  /** Advisory only — what the verdict WOULD be given this evidence. */
+  suggested_verdict: Verdict;
+  reasoning: string;
+  /** Verbatim span copied from `user_evidence`, or "" — never fabricated. */
+  quote: string;
+}
+
+// ---- B2: Interrogate the whole response ----
+
+/**
+ * Request to interrogate an ENTIRE response's audit, not a single claim
+ * (POST /api/interrogate-audit). Useful for "which claim here is weakest?",
+ * "summarize the risks", "what should I double-check before sending?".
+ *
+ * The auditor answers grounded only in the per-claim audit results already on
+ * `audit` (no web re-search, CLAUDE.md rule 5) and abstains on out-of-evidence
+ * questions, same discipline as the per-claim interrogator.
+ */
+export interface InterrogateAuditRequestBody {
+  audit: MessageAudit;
+  history: InterrogationTurn[];
+  question: string;
+}
+
+export interface InterrogateAuditResponseBody {
+  answer: string;
+  /** Claim ids the answer leaned on (subset of the audit's claim ids). */
+  cited_claim_ids: string[];
   abstained: boolean;
 }
 

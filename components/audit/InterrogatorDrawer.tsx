@@ -12,37 +12,45 @@ import {
 } from "react";
 import type {
   AgentRole,
+  ChallengeRequestBody,
+  ChallengeResponseBody,
+  ChallengeStance,
   ClaimAudit,
+  InterrogateAuditRequestBody,
+  InterrogateAuditResponseBody,
   InterrogateRequestBody,
   InterrogateResponseBody,
   InterrogationTurn,
+  MessageAudit,
+  Verdict,
 } from "@/types";
 import { AGENT_ROLE_LABEL, VERDICT_STYLES } from "./verdict";
 
 /**
- * "Interrogate the verdict / Ask the auditor" — floating window edition.
+ * "Ask the auditor" — floating window with three modes:
+ *   - per-claim interrogation        → open(ca)        → POST /api/interrogate
+ *   - whole-response interrogation B2 → openAudit(a)   → POST /api/interrogate-audit
+ *   - challenge a claim with B1       → (in-window UI)  → POST /api/challenge
  *
- * A single, NON-MODAL floating window (mounted once via `InterrogatorProvider`)
- * that any `ClaimRow` opens with `useInterrogator().open(ca)`. Unlike a docked
- * drawer or an inline thread, it hovers above the page without shifting layout
- * or locking interaction — the reviewer can still scroll the claim list and
- * read agent reports underneath, and drag the window out of the way.
- *
- * It is draggable (by its title bar) and resizable (bottom-right handle), can
- * be minimized to a pill, and remembers its position/size for the session.
- * Clicking "Ask the auditor" on a different claim RETARGETS the same window.
- *
- * Threads live in this provider's React state, keyed by `claim.id`, so the
- * conversation is preserved when retargeting/minimizing. Nothing is persisted
- * server-side (CLAUDE.md rule 6). The auditor answers grounded only in evidence
- * already gathered and never re-searches (rule 5); see `lib/interrogate.ts`.
+ * A single, NON-MODAL, draggable + resizable window mounted once via
+ * `InterrogatorProvider`. It hovers above the page without shifting layout or
+ * locking interaction. Threads live in provider state keyed by target, and the
+ * auditor always answers grounded in evidence already gathered — never
+ * re-searching the web (CLAUDE.md rule 5). See lib/interrogate*.ts.
  */
 
-const STARTERS = [
+const CLAIM_STARTERS = [
   "Why this verdict?",
   "What would change it?",
   "Strongest counter-evidence?",
   "Could this be a false positive?",
+];
+
+const AUDIT_STARTERS = [
+  "Which claim is weakest?",
+  "What should I double-check?",
+  "Summarize the risks",
+  "Where did the agents disagree?",
 ];
 
 const MIN_W = 300;
@@ -57,10 +65,27 @@ interface Rect {
   h: number;
 }
 
+type Target =
+  | { kind: "claim"; ca: ClaimAudit }
+  | { kind: "audit"; audit: MessageAudit; label: string };
+
+function targetKey(t: Target): string {
+  return t.kind === "claim" ? t.ca.claim.id : `audit:${t.audit.message_id}`;
+}
+
+interface ChallengeResult {
+  stance: ChallengeStance;
+  suggested_verdict: Verdict;
+  quote: string;
+  source_url?: string;
+}
+
 interface AuditorMeta {
-  cited_agents: AgentRole[];
-  cited_source_urls: string[];
-  abstained: boolean;
+  cited_agents?: AgentRole[];
+  cited_source_urls?: string[];
+  cited_claim_ids?: string[];
+  abstained?: boolean;
+  challenge?: ChallengeResult;
 }
 
 interface DisplayTurn extends InterrogationTurn {
@@ -69,10 +94,12 @@ interface DisplayTurn extends InterrogationTurn {
 
 interface InterrogatorContextValue {
   open: (ca: ClaimAudit) => void;
+  openAudit: (audit: MessageAudit, label: string) => void;
 }
 
 const InterrogatorContext = createContext<InterrogatorContextValue>({
   open: () => {},
+  openAudit: () => {},
 });
 
 export function useInterrogator() {
@@ -92,47 +119,51 @@ function defaultRect(): Rect {
   if (typeof window === "undefined") {
     return { x: 24, y: 96, w: DEFAULT_W, h: DEFAULT_H };
   }
-  // Default to the left side, as requested — alongside the panel, not over it.
   const h = Math.min(DEFAULT_H, window.innerHeight - 96);
   return clampRect({ x: 24, y: 88, w: DEFAULT_W, h });
 }
 
 export function InterrogatorProvider({ children }: { children: ReactNode }) {
-  const [active, setActive] = useState<ClaimAudit | null>(null);
+  const [target, setTarget] = useState<Target | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [threads, setThreads] = useState<Record<string, DisplayTurn[]>>({});
-  // Persisted window geometry for the session. `null` until first opened.
   const [rect, setRect] = useState<Rect | null>(null);
 
   const open = useCallback((ca: ClaimAudit) => {
-    setActive(ca);
+    setTarget({ kind: "claim", ca });
     setMinimized(false);
     setRect((prev) => prev ?? defaultRect());
   }, []);
 
-  const close = useCallback(() => setActive(null), []);
+  const openAudit = useCallback((audit: MessageAudit, label: string) => {
+    setTarget({ kind: "audit", audit, label });
+    setMinimized(false);
+    setRect((prev) => prev ?? defaultRect());
+  }, []);
+
+  const close = useCallback(() => setTarget(null), []);
   const toggleMinimize = useCallback(() => setMinimized((m) => !m), []);
 
   const setThreadFor = useCallback(
-    (claimId: string, updater: (prev: DisplayTurn[]) => DisplayTurn[]) => {
-      setThreads((prev) => ({
-        ...prev,
-        [claimId]: updater(prev[claimId] ?? []),
-      }));
+    (key: string, updater: (prev: DisplayTurn[]) => DisplayTurn[]) => {
+      setThreads((prev) => ({ ...prev, [key]: updater(prev[key] ?? []) }));
     },
     [],
   );
 
-  const value = useMemo(() => ({ open }), [open]);
+  const value = useMemo(() => ({ open, openAudit }), [open, openAudit]);
+
+  const key = target ? targetKey(target) : null;
 
   return (
     <InterrogatorContext.Provider value={value}>
       {children}
-      {active && rect && (
+      {target && key && rect && (
         <FloatingInterrogator
-          ca={active}
-          turns={threads[active.claim.id] ?? []}
-          setTurns={(updater) => setThreadFor(active.claim.id, updater)}
+          key={key}
+          target={target}
+          turns={threads[key] ?? []}
+          setTurns={(updater) => setThreadFor(key, updater)}
           minimized={minimized}
           onToggleMinimize={toggleMinimize}
           onClose={close}
@@ -145,7 +176,7 @@ export function InterrogatorProvider({ children }: { children: ReactNode }) {
 }
 
 interface FloatingProps {
-  ca: ClaimAudit;
+  target: Target;
   turns: DisplayTurn[];
   setTurns: (updater: (prev: DisplayTurn[]) => DisplayTurn[]) => void;
   minimized: boolean;
@@ -156,7 +187,7 @@ interface FloatingProps {
 }
 
 function FloatingInterrogator({
-  ca,
+  target,
   turns,
   setTurns,
   minimized,
@@ -165,24 +196,30 @@ function FloatingInterrogator({
   initialRect,
   onCommitRect,
 }: FloatingProps) {
-  // Live geometry stays in local state so dragging never re-renders the app.
   const [rect, setRect] = useState<Rect>(initialRect);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Challenge composer (claim scope only).
+  const [challengeOpen, setChallengeOpen] = useState(false);
+  const [challengeText, setChallengeText] = useState("");
+  const [challengeUrl, setChallengeUrl] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Interaction tracking for drag/resize. Null when idle.
   const gesture = useRef<
-    | { kind: "drag" | "resize"; px: number; py: number; start: Rect }
-    | null
+    { kind: "drag" | "resize"; px: number; py: number; start: Rect } | null
   >(null);
 
-  const style = VERDICT_STYLES[ca.consensus_verdict];
+  const isClaim = target.kind === "claim";
+  const ca = isClaim ? target.ca : null;
+  const style = ca ? VERDICT_STYLES[ca.consensus_verdict] : null;
+  const starters = isClaim ? CLAIM_STARTERS : AUDIT_STARTERS;
 
+  // Evidence URL → label (claim scope) for citation rendering.
   const urlLabels = useMemo(() => {
     const m = new Map<string, string>();
+    if (!ca) return m;
     for (const r of ca.per_agent_reports) {
       for (const s of r.sources) {
         if (s.url && !m.has(s.url)) m.set(s.url, s.domain || s.url);
@@ -191,7 +228,16 @@ function FloatingInterrogator({
     return m;
   }, [ca]);
 
-  // Keep the newest turn in view.
+  // Claim id → short text (audit scope) for cited-claim chips.
+  const claimLabels = useMemo(() => {
+    const m = new Map<string, string>();
+    if (target.kind !== "audit") return m;
+    for (const c of target.audit.claims) {
+      m.set(c.claim.id, c.claim.text);
+    }
+    return m;
+  }, [target]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -199,7 +245,6 @@ function FloatingInterrogator({
     });
   }, [turns, loading, minimized]);
 
-  // Re-clamp into the viewport if the browser window resizes.
   useEffect(() => {
     function onResize() {
       setRect((r) => {
@@ -249,45 +294,125 @@ function FloatingInterrogator({
     setError(null);
     setLoading(true);
 
-    const history: InterrogationTurn[] = turns.map((t) => ({
-      role: t.role,
-      content: t.content,
-    }));
+    const history: InterrogationTurn[] = turns
+      .filter((t) => !t.meta?.challenge)
+      .map((t) => ({ role: t.role, content: t.content }));
 
     setTurns((prev) => [...prev, { role: "user", content: q }]);
     setDraft("");
 
     try {
-      const reqBody: InterrogateRequestBody = {
+      if (target.kind === "claim") {
+        const reqBody: InterrogateRequestBody = {
+          claim_audit: target.ca,
+          history,
+          question: q,
+        };
+        const res = await fetch("/api/interrogate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reqBody),
+        });
+        const data = (await res.json()) as
+          | InterrogateResponseBody
+          | { error: string };
+        if (!res.ok || "error" in data) {
+          setError("error" in data ? data.error : `Request failed (${res.status}).`);
+          return;
+        }
+        setTurns((prev) => [
+          ...prev,
+          {
+            role: "auditor",
+            content: data.answer,
+            meta: {
+              cited_agents: data.cited_agents,
+              cited_source_urls: data.cited_source_urls,
+              abstained: data.abstained,
+            },
+          },
+        ]);
+      } else {
+        const reqBody: InterrogateAuditRequestBody = {
+          audit: target.audit,
+          history,
+          question: q,
+        };
+        const res = await fetch("/api/interrogate-audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reqBody),
+        });
+        const data = (await res.json()) as
+          | InterrogateAuditResponseBody
+          | { error: string };
+        if (!res.ok || "error" in data) {
+          setError("error" in data ? data.error : `Request failed (${res.status}).`);
+          return;
+        }
+        setTurns((prev) => [
+          ...prev,
+          {
+            role: "auditor",
+            content: data.answer,
+            meta: { cited_claim_ids: data.cited_claim_ids, abstained: data.abstained },
+          },
+        ]);
+      }
+    } catch {
+      setError("Network error — could not reach the auditor.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitChallenge() {
+    if (!ca || loading) return;
+    const evidence = challengeText.trim();
+    if (!evidence) return;
+    const url = challengeUrl.trim();
+    setError(null);
+    setLoading(true);
+
+    setTurns((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: `Challenge with a source${url ? ` (${url})` : ""}:\n${evidence}`,
+      },
+    ]);
+    setChallengeText("");
+    setChallengeUrl("");
+    setChallengeOpen(false);
+
+    try {
+      const reqBody: ChallengeRequestBody = {
         claim_audit: ca,
-        history,
-        question: q,
+        user_evidence: evidence,
+        source_url: url || undefined,
       };
-      const res = await fetch("/api/interrogate", {
+      const res = await fetch("/api/challenge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reqBody),
       });
-      const data = (await res.json()) as
-        | InterrogateResponseBody
-        | { error: string };
-
+      const data = (await res.json()) as ChallengeResponseBody | { error: string };
       if (!res.ok || "error" in data) {
-        const msg =
-          "error" in data ? data.error : `Request failed (${res.status}).`;
-        setError(msg);
+        setError("error" in data ? data.error : `Request failed (${res.status}).`);
         return;
       }
-
       setTurns((prev) => [
         ...prev,
         {
           role: "auditor",
-          content: data.answer,
+          content: data.reasoning,
           meta: {
-            cited_agents: data.cited_agents,
-            cited_source_urls: data.cited_source_urls,
-            abstained: data.abstained,
+            challenge: {
+              stance: data.stance,
+              suggested_verdict: data.suggested_verdict,
+              quote: data.quote,
+              source_url: url || undefined,
+            },
           },
         },
       ]);
@@ -331,8 +456,8 @@ function FloatingInterrogator({
             width: 8,
             height: 8,
             borderRadius: "50%",
-            background: style.color,
-            boxShadow: style.dotGlow,
+            background: style ? style.color : "var(--accent)",
+            boxShadow: style ? style.dotGlow : "0 0 7px var(--accent)",
             flexShrink: 0,
           }}
         />
@@ -347,10 +472,6 @@ function FloatingInterrogator({
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            maxWidth: 180,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
           }}
         >
           Ask the auditor
@@ -359,19 +480,7 @@ function FloatingInterrogator({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: "transparent",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            display: "grid",
-            placeItems: "center",
-            fontSize: 13,
-            lineHeight: 1,
-          }}
+          style={pillCloseBtn}
         >
           ×
         </button>
@@ -404,7 +513,6 @@ function FloatingInterrogator({
       {/* drag handle / title bar */}
       <div
         onPointerDown={(e) => {
-          // Don't start a drag from the control buttons.
           if ((e.target as HTMLElement).closest("button")) return;
           beginGesture("drag", e);
         }}
@@ -423,15 +531,7 @@ function FloatingInterrogator({
           userSelect: "none",
         }}
       >
-        <span
-          style={{
-            display: "flex",
-            gap: 3,
-            alignItems: "center",
-            color: "var(--text-faint)",
-          }}
-          aria-hidden
-        >
+        <span style={{ display: "flex", color: "var(--text-faint)" }} aria-hidden>
           <Dots />
         </span>
         <span
@@ -443,43 +543,23 @@ function FloatingInterrogator({
             color: "var(--accent-bright, var(--accent))",
           }}
         >
-          Ask the auditor
+          {isClaim ? "Ask the auditor" : "Ask about this response"}
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-          <button
-            type="button"
-            onClick={onToggleMinimize}
-            aria-label="Minimize"
-            style={ctrlBtn}
-          >
+          <button type="button" onClick={onToggleMinimize} aria-label="Minimize" style={ctrlBtn}>
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path
-                d="M2.5 8.5h7"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-              />
+              <path d="M2.5 8.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            style={ctrlBtn}
-          >
+          <button type="button" onClick={onClose} aria-label="Close" style={ctrlBtn}>
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path
-                d="M3 3l6 6M9 3l-6 6"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-              />
+              <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* claim context */}
+      {/* context header */}
       <div
         style={{
           flexShrink: 0,
@@ -490,18 +570,48 @@ function FloatingInterrogator({
           gap: 6,
         }}
       >
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <span
-            style={{
-              flexShrink: 0,
-              marginTop: 3,
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: style.color,
-              boxShadow: style.dotGlow,
-            }}
-          />
+        {ca && style ? (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <span
+              style={{
+                flexShrink: 0,
+                marginTop: 3,
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: style.color,
+                boxShadow: style.dotGlow,
+              }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span
+                style={{
+                  fontFamily: "'Geist Mono',monospace",
+                  fontSize: 9,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: style.color,
+                }}
+              >
+                {style.label}
+              </span>
+              <p
+                style={{
+                  fontSize: 12.5,
+                  lineHeight: 1.4,
+                  color: "var(--text-primary)",
+                  margin: 0,
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {ca.claim.text}
+              </p>
+            </div>
+          </div>
+        ) : target.kind === "audit" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             <span
               style={{
@@ -509,27 +619,20 @@ function FloatingInterrogator({
                 fontSize: 9,
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
-                color: style.color,
+                color: "var(--text-secondary)",
               }}
             >
-              {style.label}
+              {target.label}
             </span>
-            <p
-              style={{
-                fontSize: 12.5,
-                lineHeight: 1.4,
-                color: "var(--text-primary)",
-                margin: 0,
-                display: "-webkit-box",
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
-            >
-              {ca.claim.text}
-            </p>
+            <span style={{ fontSize: 12, color: "var(--text-primary)" }}>
+              {target.audit.summary.total_claims} claim
+              {target.audit.summary.total_claims === 1 ? "" : "s"} ·{" "}
+              {target.audit.summary.contradicted +
+                target.audit.summary.likely_hallucination}{" "}
+              flagged
+            </span>
           </div>
-        </div>
+        ) : null}
         <span style={{ fontSize: 10, color: "var(--text-faint)" }}>
           Grounded in the gathered evidence · no new web search
         </span>
@@ -549,16 +652,10 @@ function FloatingInterrogator({
         }}
       >
         {turns.length === 0 && !loading && (
-          <p
-            style={{
-              fontSize: 12,
-              lineHeight: 1.5,
-              color: "var(--text-muted)",
-              margin: 0,
-            }}
-          >
-            Ask why this claim got its verdict, what would change it, or where
-            the agents disagreed.
+          <p style={{ fontSize: 12, lineHeight: 1.5, color: "var(--text-muted)", margin: 0 }}>
+            {isClaim
+              ? "Ask why this claim got its verdict, what would change it, or challenge it with your own source below."
+              : "Ask which claims are weakest, what to double-check, or where the agents disagreed."}
           </p>
         )}
 
@@ -576,71 +673,47 @@ function FloatingInterrogator({
                     border: "1px solid var(--border)",
                     borderRadius: 10,
                     padding: "7px 11px",
+                    whiteSpace: "pre-wrap",
                   }}
                 >
                   {t.content}
                 </span>
               </div>
+            ) : t.meta?.challenge ? (
+              <ChallengeTurn reasoning={t.content} challenge={t.meta.challenge} />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {t.meta?.abstained && (
-                  <span
-                    style={{
-                      alignSelf: "flex-start",
-                      fontFamily: "'Geist Mono',monospace",
-                      fontSize: 8.5,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      color: "var(--text-muted)",
-                      background: "var(--bg-inset)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 4,
-                      padding: "2px 6px",
-                    }}
-                  >
-                    outside gathered evidence
-                  </span>
+                  <span style={abstainBadge}>outside gathered evidence</span>
                 )}
                 <p
                   style={{
                     fontSize: 12.5,
                     lineHeight: 1.5,
-                    color: t.meta?.abstained
-                      ? "var(--text-muted)"
-                      : "var(--text-secondary)",
+                    color: t.meta?.abstained ? "var(--text-muted)" : "var(--text-secondary)",
                     whiteSpace: "pre-wrap",
                     margin: 0,
                   }}
                 >
                   {t.content}
                 </p>
-                {(t.meta?.cited_agents.length || t.meta?.cited_source_urls.length) ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                      gap: 5,
-                    }}
-                  >
-                    {t.meta?.cited_agents.map((role) => (
-                      <span
-                        key={role}
-                        style={{
-                          fontFamily: "'Geist Mono',monospace",
-                          fontSize: 8.5,
-                          letterSpacing: "0.06em",
-                          color: "var(--text-muted)",
-                          background: "var(--bg-inset)",
-                          border: "1px solid var(--border)",
-                          borderRadius: 4,
-                          padding: "2px 6px",
-                        }}
-                      >
+                {/* citations */}
+                {(t.meta?.cited_agents?.length ||
+                  t.meta?.cited_source_urls?.length ||
+                  t.meta?.cited_claim_ids?.length) ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5 }}>
+                    {t.meta?.cited_agents?.map((role) => (
+                      <span key={role} style={chip}>
                         {AGENT_ROLE_LABEL[role]}
                       </span>
                     ))}
-                    {t.meta?.cited_source_urls.map((url) => (
+                    {t.meta?.cited_claim_ids?.map((id) => (
+                      <span key={id} style={chip} title={claimLabels.get(id) ?? id}>
+                        {(claimLabels.get(id) ?? id).slice(0, 32)}
+                        {(claimLabels.get(id) ?? id).length > 32 ? "…" : ""}
+                      </span>
+                    ))}
+                    {t.meta?.cited_source_urls?.map((url) => (
                       <a
                         key={url}
                         href={url}
@@ -676,9 +749,7 @@ function FloatingInterrogator({
         )}
 
         {error && (
-          <span style={{ fontSize: 11.5, color: "var(--v-contradicted)" }}>
-            {error}
-          </span>
+          <span style={{ fontSize: 11.5, color: "var(--v-contradicted)" }}>{error}</span>
         )}
       </div>
 
@@ -695,7 +766,7 @@ function FloatingInterrogator({
       >
         {turns.length === 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {STARTERS.map((s) => (
+            {starters.map((s) => (
               <button
                 key={s}
                 type="button"
@@ -717,6 +788,106 @@ function FloatingInterrogator({
           </div>
         )}
 
+        {/* challenge composer (claim scope only) */}
+        {isClaim && challengeOpen && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              padding: 8,
+              borderRadius: 9,
+              border: "1px solid color-mix(in srgb, var(--v-crosscheck) 30%, transparent)",
+              background: "color-mix(in srgb, var(--v-crosscheck) 6%, transparent)",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'Geist Mono',monospace",
+                fontSize: 9,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--v-crosscheck)",
+              }}
+            >
+              Challenge with your own source
+            </span>
+            <textarea
+              value={challengeText}
+              onChange={(e) => setChallengeText(e.target.value)}
+              placeholder="Paste an excerpt, quote, or abstract the audit missed…"
+              rows={3}
+              disabled={loading}
+              style={{
+                resize: "vertical",
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: "var(--text-primary)",
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "7px 9px",
+                outline: "none",
+                fontFamily: "inherit",
+              }}
+            />
+            <input
+              type="text"
+              value={challengeUrl}
+              onChange={(e) => setChallengeUrl(e.target.value)}
+              placeholder="Source URL (optional)"
+              disabled={loading}
+              style={{
+                fontSize: 11.5,
+                color: "var(--text-primary)",
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "6px 9px",
+                outline: "none",
+              }}
+            />
+            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setChallengeOpen(false)}
+                style={{
+                  fontSize: 11.5,
+                  color: "var(--text-muted)",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "5px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitChallenge}
+                disabled={loading || challengeText.trim().length === 0}
+                style={{
+                  fontFamily: "'Geist Mono',monospace",
+                  fontSize: 11,
+                  color:
+                    loading || challengeText.trim().length === 0
+                      ? "var(--text-faint)"
+                      : "var(--v-crosscheck)",
+                  background: "transparent",
+                  border: "1px solid color-mix(in srgb, var(--v-crosscheck) 35%, transparent)",
+                  borderRadius: 8,
+                  padding: "5px 12px",
+                  cursor:
+                    loading || challengeText.trim().length === 0 ? "default" : "pointer",
+                }}
+              >
+                Re-judge
+              </button>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 6 }}>
           <input
             ref={inputRef}
@@ -724,7 +895,7 @@ function FloatingInterrogator({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask why this verdict…"
+            placeholder={isClaim ? "Ask why this verdict…" : "Ask about this response…"}
             disabled={loading}
             style={{
               flex: 1,
@@ -754,13 +925,33 @@ function FloatingInterrogator({
               border: "1px solid var(--border)",
               borderRadius: 8,
               padding: "0 14px",
-              cursor:
-                loading || draft.trim().length === 0 ? "default" : "pointer",
+              cursor: loading || draft.trim().length === 0 ? "default" : "pointer",
             }}
           >
             Ask
           </button>
         </div>
+
+        {isClaim && !challengeOpen && (
+          <button
+            type="button"
+            onClick={() => setChallengeOpen(true)}
+            disabled={loading}
+            style={{
+              alignSelf: "flex-start",
+              fontFamily: "'Geist Mono',monospace",
+              fontSize: 10,
+              letterSpacing: "0.04em",
+              color: "var(--v-crosscheck)",
+              background: "transparent",
+              border: "none",
+              cursor: loading ? "default" : "pointer",
+              padding: 0,
+            }}
+          >
+            + Challenge with a source
+          </button>
+        )}
       </div>
 
       {/* resize handle */}
@@ -783,15 +974,97 @@ function FloatingInterrogator({
         }}
       >
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path
-            d="M10 4 4 10M10 8 8 10"
-            stroke="currentColor"
-            strokeWidth="1.1"
-            strokeLinecap="round"
-          />
+          <path d="M10 4 4 10M10 8 8 10" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
         </svg>
       </div>
     </aside>
+  );
+}
+
+const STANCE_COPY: Record<ChallengeStance, { label: string; color: string }> = {
+  supports: { label: "Your source supports the claim", color: "var(--v-verified)" },
+  contradicts: { label: "Your source contradicts the claim", color: "var(--v-contradicted)" },
+  insufficient: { label: "Your source doesn't settle it", color: "var(--text-muted)" },
+};
+
+function ChallengeTurn({
+  reasoning,
+  challenge,
+}: {
+  reasoning: string;
+  challenge: ChallengeResult;
+}) {
+  const stance = STANCE_COPY[challenge.stance];
+  const vstyle = VERDICT_STYLES[challenge.suggested_verdict];
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        padding: "9px 11px",
+        borderRadius: 9,
+        border: "1px solid color-mix(in srgb, var(--v-crosscheck) 28%, transparent)",
+        background: "color-mix(in srgb, var(--v-crosscheck) 6%, transparent)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+        <span
+          style={{
+            fontFamily: "'Geist Mono',monospace",
+            fontSize: 9,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--v-crosscheck)",
+          }}
+        >
+          Challenge
+        </span>
+        <span style={{ fontSize: 11.5, fontWeight: 500, color: stance.color }}>
+          {stance.label}
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <span style={{ fontSize: 10.5, color: "var(--text-faint)" }}>Would be</span>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            height: 19,
+            padding: "0 8px",
+            borderRadius: 999,
+            background: vstyle.bgMix,
+            border: `1px solid color-mix(in srgb, ${vstyle.color} 35%, transparent)`,
+            fontFamily: "'Geist Mono',monospace",
+            fontSize: 9,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: vstyle.color,
+          }}
+        >
+          {vstyle.label}
+        </span>
+        <span style={{ fontSize: 9.5, color: "var(--text-faint)" }}>(advisory)</span>
+      </div>
+      <p style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--text-secondary)", margin: 0 }}>
+        {reasoning}
+      </p>
+      {challenge.quote && (
+        <blockquote
+          style={{
+            margin: 0,
+            padding: "5px 9px",
+            borderLeft: "2px solid color-mix(in srgb, var(--v-crosscheck) 45%, transparent)",
+            fontSize: 11.5,
+            fontStyle: "italic",
+            color: "var(--text-muted)",
+          }}
+        >
+          “{challenge.quote}”
+        </blockquote>
+      )}
+    </div>
   );
 }
 
@@ -805,6 +1078,44 @@ const ctrlBtn: React.CSSProperties = {
   cursor: "pointer",
   display: "grid",
   placeItems: "center",
+};
+
+const pillCloseBtn: React.CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: 6,
+  border: "1px solid var(--border)",
+  background: "transparent",
+  color: "var(--text-muted)",
+  cursor: "pointer",
+  display: "grid",
+  placeItems: "center",
+  fontSize: 13,
+  lineHeight: 1,
+};
+
+const chip: React.CSSProperties = {
+  fontFamily: "'Geist Mono',monospace",
+  fontSize: 8.5,
+  letterSpacing: "0.06em",
+  color: "var(--text-muted)",
+  background: "var(--bg-inset)",
+  border: "1px solid var(--border)",
+  borderRadius: 4,
+  padding: "2px 6px",
+};
+
+const abstainBadge: React.CSSProperties = {
+  alignSelf: "flex-start",
+  fontFamily: "'Geist Mono',monospace",
+  fontSize: 8.5,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "var(--text-muted)",
+  background: "var(--bg-inset)",
+  border: "1px solid var(--border)",
+  borderRadius: 4,
+  padding: "2px 6px",
 };
 
 function Dots() {

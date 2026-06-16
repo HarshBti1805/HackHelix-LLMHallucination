@@ -17,6 +17,7 @@ import { ClaimList } from "@/components/audit/ClaimList";
 import { SummaryBar } from "@/components/audit/SummaryBar";
 import { AuditHeadlineBar } from "@/components/audit/AuditHeadlineBar";
 import { failedClaimCount } from "@/components/audit/verdict";
+import { useInterrogator } from "@/components/audit/InterrogatorDrawer";
 import { ComparisonSidebar } from "@/components/comparison/ComparisonSidebar";
 import { useTheme, PALETTE_META, type Palette } from "@/components/ThemeProvider";
 
@@ -221,6 +222,7 @@ interface AuditPanelProps {
 }
 
 function AuditPanel({ isPending, audit, errorMessage, onDehallucinate, isDehallucPending, dehallucError }: AuditPanelProps) {
+  const { openAudit } = useInterrogator();
   if (isPending) return (
     <div style={{marginTop:16,border:"1px solid var(--border)",borderRadius:13,background:"var(--bg-raised)",overflow:"hidden",boxShadow:"var(--shadow-card)"}}>
       <AuditSkeleton/>
@@ -253,6 +255,16 @@ function AuditPanel({ isPending, audit, errorMessage, onDehallucinate, isDehallu
         onDehallucinate={onDehallucinate}
       />
       <div style={{padding:8,display:"flex",flexDirection:"column",gap:7}}>
+        <button
+          type="button"
+          onClick={() => openAudit(audit, "Whole response")}
+          style={{alignSelf:"flex-start",display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,border:"1px solid color-mix(in srgb, var(--accent) 30%, transparent)",background:"color-mix(in srgb, var(--accent) 7%, transparent)",cursor:"pointer",color:"var(--accent-bright, var(--accent))",fontFamily:"'Geist Mono',monospace",fontSize:10,letterSpacing:"0.04em"}}
+        >
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+            <path d="M2.5 3.2h9v6h-5l-2.4 2v-2H2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          </svg>
+          Ask about this response
+        </button>
         <ClaimList claims={audit.claims}/>
       </div>
     </div>
@@ -411,6 +423,7 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -590,17 +603,50 @@ export default function Home() {
     setMessages(nextMessages);
     setPending(true);
     setError(null);
+    const assistantId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     try {
-      const body: ChatRequestBody = { messages: nextMessages.map((m) => ({ role: m.role, content: m.content })), provider, model };
+      const body: ChatRequestBody = { messages: nextMessages.map((m) => ({ role: m.role, content: m.content })), provider, model, stream: true };
       const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) { const e = await res.json().catch(() => ({})) as {error?: string}; throw new Error(e.error ?? `Request failed: ${res.status}`); }
-      const data = (await res.json()) as ChatResponseBody;
-      const assistantMsg: ChatMessage = { ...data.message, regenerates_message_id: opts?.regeneratesMessageId };
+
+      // Non-streaming fallback (e.g. a proxy stripped the body).
+      if (!res.body) {
+        const data = (await res.json()) as ChatResponseBody;
+        const assistantMsg: ChatMessage = { ...data.message, regenerates_message_id: opts?.regeneratesMessageId };
+        setMessages((prev) => [...prev, assistantMsg]);
+        requestAudit(assistantMsg.id, assistantMsg.content, trimmed);
+        return;
+      }
+
+      // D1: stream the reply in token-by-token.
+      const assistantMsg: ChatMessage = { id: assistantId, role: "assistant", content: "", provider, model, timestamp: Date.now(), regenerates_message_id: opts?.regeneratesMessageId };
       setMessages((prev) => [...prev, assistantMsg]);
-      requestAudit(assistantMsg.id, assistantMsg.content, trimmed);
+      setStreamingId(assistantId);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        if (chunk) {
+          full += chunk;
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: full } : m)));
+        }
+      }
+      const tail = decoder.decode();
+      if (tail) {
+        full += tail;
+        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: full } : m)));
+      }
+      if (!full.trim()) throw new Error("The model returned an empty response.");
+      requestAudit(assistantId, full, trimmed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
+      // Drop an empty placeholder if nothing streamed in.
+      setMessages((prev) => prev.filter((m) => !(m.id === assistantId && m.content === "")));
     } finally {
+      setStreamingId(null);
       setPending(false);
     }
   }
@@ -837,8 +883,8 @@ export default function Home() {
                   </div>
                 ))}
 
-                {/* thinking loader */}
-                {pending && (
+                {/* thinking loader — only until the stream starts */}
+                {pending && !streamingId && (
                   <div style={{display:"flex",gap:13}}>
                     <AssistantAvatar/>
                     <div style={{display:"flex",alignItems:"center",gap:6,height:30}}>

@@ -86,3 +86,38 @@ export async function anthropicChat(
   }
   return text;
 }
+
+/**
+ * Streaming chat-completion (D1). Yields text deltas as Claude produces them.
+ */
+export async function* anthropicChatStream(
+  messages: AnthropicChatTurn[],
+  model: AnthropicChatModel = "claude-haiku-4-5",
+): AsyncGenerator<string> {
+  const systemTurns = messages.filter((m) => m.role === "system");
+  const conversation = messages.filter((m) => m.role !== "system");
+
+  const system =
+    systemTurns.length > 0
+      ? systemTurns.map((m) => m.content).join("\n\n")
+      : undefined;
+
+  const stream = client().messages.stream({
+    model,
+    max_tokens: DEFAULT_MAX_TOKENS,
+    ...(system ? { system } : {}),
+    messages: conversation.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+  });
+
+  for await (const event of stream) {
+    if (
+      event.type === "content_block_delta" &&
+      event.delta.type === "text_delta"
+    ) {
+      yield event.delta.text;
+    }
+  }
+}

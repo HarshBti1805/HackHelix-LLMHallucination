@@ -82,6 +82,82 @@ function buildSearchQuery(claim: Claim): string {
   return `${claim.text} ${distinctiveEntities.join(" ")}`;
 }
 
+/**
+ * A2: evidence relevance gate (MAJOR_CHANGES.md, "smarter auditor").
+ *
+ * Tavily ranks by general relevance, but on claims that sit NEAR a real topic
+ * (a fabricated "MIT 2022 longitudinal ChatGPT study", a wrong date attached to
+ * a real event) it returns adjacent-topic pages that mention the subject area
+ * without addressing the specific claim. The Defender then reads those generic
+ * pages as support and the claim gets a false `verified` (README "adjacent-topic
+ * sources can produce a false-verified verdict").
+ *
+ * This gate drops sources that share NO meaningful token with the claim before
+ * the agent ever sees them — so an off-topic page can't be cited as evidence.
+ * It is deliberately conservative: a source survives on weak overlap (one entity
+ * token, one number, or two content words), so only clearly-unrelated results
+ * are removed. If the gate would remove everything, we return [] and let the
+ * agent fall through to its cautious `unverified_plausible` default rather than
+ * verifying against noise.
+ */
+const RELEVANCE_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for",
+  "with", "as", "by", "is", "are", "was", "were", "be", "been", "being", "that",
+  "this", "these", "those", "it", "its", "from", "has", "have", "had", "which",
+  "who", "whom", "what", "when", "where", "how", "than", "then", "into", "about",
+  "their", "there", "they", "them", "his", "her", "she", "he", "we", "you",
+  "your", "our", "also", "more", "most", "some", "such", "per", "via",
+]);
+
+function relevanceTokens(claim: Claim): { words: Set<string>; numbers: Set<string> } {
+  const words = new Set<string>();
+  const numbers = new Set<string>();
+  const push = (raw: string) => {
+    const lower = raw.toLowerCase();
+    for (const num of lower.match(/\d[\d,.]*/g) ?? []) {
+      const norm = num.replace(/[,.]+$/, "");
+      if (norm.length > 0) numbers.add(norm);
+    }
+    for (const tok of lower.split(/[^a-z0-9]+/)) {
+      if (tok.length >= 4 && !RELEVANCE_STOPWORDS.has(tok)) words.add(tok);
+    }
+  };
+  for (const e of claim.entities) push(e);
+  push(claim.text);
+  // Entities are the strongest signal; index them as their own set too.
+  for (const e of claim.entities) {
+    const lower = e.toLowerCase().trim();
+    if (lower.length >= 3) words.add(lower);
+  }
+  return { words, numbers };
+}
+
+export function filterRelevantSources(
+  claim: Claim,
+  sources: EvidenceSource[],
+): EvidenceSource[] {
+  if (sources.length === 0) return sources;
+  const { words, numbers } = relevanceTokens(claim);
+  if (words.size === 0 && numbers.size === 0) return sources;
+
+  const kept = sources.filter((s) => {
+    const hay = `${s.title} ${s.snippet}`.toLowerCase();
+    if (numbers.size > 0) {
+      for (const n of numbers) if (hay.includes(n)) return true;
+    }
+    let wordHits = 0;
+    for (const w of words) {
+      if (hay.includes(w)) {
+        wordHits++;
+        if (wordHits >= 2) return true;
+      }
+    }
+    return false;
+  });
+
+  return kept;
+}
+
 /** Render the evidence list as the numbered block the prompts reference. */
 function formatEvidence(sources: EvidenceSource[]): string {
   if (sources.length === 0) {
@@ -228,6 +304,10 @@ export async function runAgent(
     console.error(`[agents/${role}] search failed:`, reason);
     return emptyEvidenceReport(role, `search error: ${reason.slice(0, 120)}`);
   }
+
+  // A2: drop adjacent-topic results so the agent can't cite an off-topic page
+  // as evidence. Conservative — only clearly-unrelated sources are removed.
+  sources = filterRelevantSources(claim, sources);
 
   let raw: RawAgentResponse;
   try {

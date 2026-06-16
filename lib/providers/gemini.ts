@@ -72,3 +72,35 @@ export async function geminiChat(
   }
   return text;
 }
+
+/**
+ * Streaming chat-completion (D1). Yields text deltas as Gemini produces them.
+ */
+export async function* geminiChatStream(
+  messages: GeminiChatTurn[],
+  model: GeminiChatModel = "gemini-2.5-flash",
+): AsyncGenerator<string> {
+  const systemTurns = messages.filter((m) => m.role === "system");
+  const conversation = messages.filter((m) => m.role !== "system");
+
+  const systemInstruction =
+    systemTurns.length > 0
+      ? systemTurns.map((m) => m.content).join("\n\n")
+      : undefined;
+
+  const generativeModel = client().getGenerativeModel({
+    model,
+    ...(systemInstruction ? { systemInstruction } : {}),
+  });
+
+  const contents = conversation.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  const result = await generativeModel.generateContentStream({ contents });
+  for await (const chunk of result.stream) {
+    const text = chunk.text();
+    if (text) yield text;
+  }
+}

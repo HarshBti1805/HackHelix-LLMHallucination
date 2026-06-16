@@ -56,6 +56,27 @@ export async function openaiChat(
 }
 
 /**
+ * Streaming chat-completion (D1). Yields text deltas as they arrive so the UI
+ * can render the reply token-by-token. Audit still runs once the stream
+ * completes — streaming changes only how the chat reply is delivered, never the
+ * auditor path.
+ */
+export async function* openaiChatStream(
+  messages: OpenAIChatTurn[],
+  model: OpenAIChatModel = "gpt-4o",
+): AsyncGenerator<string> {
+  const stream = await client().chat.completions.create({
+    model,
+    messages,
+    stream: true,
+  });
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (delta) yield delta;
+  }
+}
+
+/**
  * Structured-JSON call. Forces `response_format: { type: "json_object" }` and
  * parses the result into `T`. Throws `MalformedLLMJsonError` on a parse
  * failure — never silently defaults (CLAUDE.md rule 4).
