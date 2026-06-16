@@ -31,7 +31,7 @@ These are non-negotiable. Do not "refactor" them away.
 
 5. **Evidence is gathered once, reused everywhere.** When a subagent searches and finds evidence, that evidence is attached to the claim audit object and available to the dehallucinator. Do not re-search in `/api/dehallucinate`.
 
-6. **In-memory state only.** No database, no Redis, no persistence. Conversation history and audit results live in React state on the client, passed back to API routes as needed. (The #9 review workspace keeps reviewer decisions in React state and makes the **exported audit trail** the durable artifact — still no server-side persistence.)
+6. **In-memory state only.** No database, no Redis, no persistence. Conversation history and audit results live in React state on the client, passed back to API routes as needed. (The #9 review workspace keeps reviewer decisions in React state and makes the **exported audit trail** the durable artifact — still no server-side persistence.) **One sanctioned exception (#C1):** connector OAuth tokens are persisted to disk (`lib/store/tokens.ts`), because re-authorizing Notion on every restart is unacceptable UX. This is the ONLY persistence — encrypted at rest, session-keyed, tokens only, never audit content. Do not extend it to store anything else.
 
 ### Sanctioned extensions (deliberate exceptions, per MAJOR_CHANGES.md)
 
@@ -79,6 +79,21 @@ These extend — never replace — the core pipeline. The three-agent web-audit 
 | `app/guardrail/page.tsx` | RAG guardrail UI | Call LLMs directly |
 | `app/verify/page.tsx` | #5 + #8 combined: fetch text/URL, then audit claims **or** check citations | Call LLMs directly |
 | `components/document/ReviewWorkspace.tsx` | #9 Compliance review: assign/sign-off claims, export audit trail (in-memory) | Persist anything server-side |
+| `lib/connectors/oauth.ts` | #C1 Generic OAuth2+PKCE / RFC9470+RFC8414 discovery / RFC7591 dynamic registration; reused by both connectors (Google passes static metadata) | Be provider-specific; persist; call provider APIs |
+| `lib/connectors/notion.ts` | #C1 Notion **MCP client**: `searchPages` / `fetchPageText` over `mcp.notion.com`; token refresh | Audit; run the OAuth dance; web search |
+| `lib/connectors/google.ts` | #C1 Google **Drive/Docs REST client** (no MCP): `searchPages` / `fetchPageText` (Doc→text export); token refresh; needs `GOOGLE_CLIENT_ID/SECRET`. Exports shared OAuth metadata/helpers for `gmail.ts` | Audit; web search; handle binaries beyond Docs/text |
+| `lib/connectors/gmail.ts` | #C1 Gmail **REST client** reusing the same Google OAuth app (gmail.readonly scope, own token): `searchPages` (messages) / `fetchPageText` (decoded body). For auditing emailed meeting summaries | Audit; web search |
+| `lib/connectors/slack.ts` | #C1 Slack **Web-API client** (OAuth v2, no PKCE; own auth helpers): `searchPages` (`search.messages`, user token) / `fetchPageText` (thread via `conversations.replies`). For auditing a Slack reply/summary; needs `SLACK_CLIENT_ID/SECRET` | Audit; web search; use the generic PKCE client |
+| `lib/connectors/registry.ts` | #C1 Maps `ConnectorId` (notion/google/gmail/slack) → its `searchPages`/`fetchPageText`/`isConnected` so the orchestrator/UI never hardcode a provider | Contain provider logic; audit |
+| `lib/store/tokens.ts` | #C1 The ONE persistence exception: encrypted, session-keyed OAuth token store (per `ConnectorId`) | Store audit content / history / anything but tokens |
+| `lib/session.ts` | #C1 Opaque httpOnly session-id cookie keying the token store | Be a user-accounts/login system |
+| `app/api/connectors/{notion,google,gmail,slack}/*` | #C1 Thin routes: authorize, callback, status, disconnect, pages, page | Audit; contain business logic beyond wiring |
+| `lib/connectors/workspace-audit.ts` | #C1 Agentic orchestrator: resolve+pull docs across connectors (reuses prior turn's docs for follow-ups), route (groundedness / factcheck / citations) via locked auditor, run existing engine | Be a 4th verifier; define audit logic (reuses `groundedness`/`document-audit`/`citations-evidence`) |
+| `lib/connectors/citations-evidence.ts` | #C1 "citations" mode: per claim, search the web (direct + adversarial query) and sort REAL retrieved sources into for/against via the locked auditor | Render verdicts; touch the 3-agent path; fabricate URLs |
+| `lib/prompts/workspace-router.ts` | #C1 Routing prompt: instruction + pulled docs → mode + doc roles | Verify claims; be part of the 3-agent path |
+| `lib/prompts/workspace-citations.ts` | #C1 Citation-sorting prompt: one claim + retrieved sources → supporting/contradicting indices | Invent sources (selects by index only) |
+| `app/api/workspace/run/route.ts` | #C1 Thin wrapper over `runWorkspaceAudit` (forwards `prior` for follow-up memory) | Business logic |
+| `app/workspace/page.tsx` | #C1 Agentic audit chat: multi-connector status (Notion + Google Drive + Gmail + Slack, all connectable at once, brand logos), search-icon picker w/ source tabs (search-as-you-type) → chips + NL instruction → `/api/workspace/run` → inline report + per-result follow-up actions + export (JSON/CSV/Markdown). Carries prior turn's docs forward; content is *pulled*, never pasted | Call connector APIs/LLMs directly (goes through routes) |
 
 ---
 

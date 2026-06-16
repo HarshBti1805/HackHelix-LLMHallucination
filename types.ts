@@ -385,6 +385,59 @@ export interface CheckCitationsRequestBody {
 
 export type CheckCitationsResponseBody = CitationReport;
 
+// ---- Interrogate the verdict / Ask the auditor ----
+
+/**
+ * One turn in a per-claim interrogation thread.
+ *   - "user":    the reviewer's question.
+ *   - "auditor": the locked auditor's grounded explanation.
+ *
+ * Threads live only in client React state (CLAUDE.md rule 6 — in-memory
+ * only). They are not persisted server-side; the compliance export
+ * (`ReviewWorkspace.tsx`) is where they could become a durable artifact.
+ */
+export interface InterrogationTurn {
+  role: "user" | "auditor";
+  content: string;
+}
+
+/**
+ * Request to interrogate a single claim's verdict (POST /api/interrogate).
+ *
+ * The ENTIRE evidence universe for the answer is `claim_audit` — the same
+ * `ClaimAudit` already rendered in the UI (agent reports, their sources and
+ * snippets, the consensus numbers, and any independent cross-check). The
+ * auditor answers ONLY from that gathered evidence and NEVER re-searches the
+ * web (CLAUDE.md rule 5 — "evidence is gathered once, reused everywhere").
+ */
+export interface InterrogateRequestBody {
+  claim_audit: ClaimAudit;
+  /** Prior turns in this claim's thread, oldest first. May be empty. */
+  history: InterrogationTurn[];
+  /** The reviewer's new question. */
+  question: string;
+}
+
+export interface InterrogateResponseBody {
+  /** The auditor's grounded explanation of its existing verdict. */
+  answer: string;
+  /** Which agent reports the answer leaned on, for UI attribution. */
+  cited_agents: AgentRole[];
+  /**
+   * URLs the answer cited — guaranteed to be a subset of the evidence URLs
+   * already present on `claim_audit`. The server drops any URL the model
+   * invents that is not in the gathered evidence.
+   */
+  cited_source_urls: string[];
+  /**
+   * True when the question asked for something the gathered evidence cannot
+   * answer. The auditor abstains rather than answering from parametric memory
+   * or re-searching — keeping an anti-hallucination tool honest about its own
+   * explanations.
+   */
+  abstained: boolean;
+}
+
 // ---- Fetch a URL / webpage (MAJOR_CHANGES.md #5) ----
 
 export interface FetchUrlRequestBody {
@@ -398,6 +451,144 @@ export interface FetchUrlResponseBody {
   /** Readable, tag-stripped body text ready to feed into the auditor. */
   text: string;
 }
+
+// ---- Connectors (MAJOR_CHANGES.md #C1 — Notion source connector) ----
+
+/**
+ * External knowledge sources the workspace can pull text from:
+ *   - "notion": Notion's hosted MCP server (OAuth + dynamic registration).
+ *   - "google": Google Drive/Docs via the Drive + Docs REST API (OAuth app).
+ *   - "gmail":  Gmail messages via the Gmail REST API (same Google OAuth app,
+ *              gmail.readonly scope) — e.g. auditing an emailed meeting summary.
+ * The union exists so the connector plumbing (`lib/connectors/*`, the token
+ * store, the API routes) is written once against an id rather than hardcoding a
+ * provider everywhere — each new connector reuses the same machinery.
+ */
+export type ConnectorId = "notion" | "google" | "gmail" | "slack";
+
+/**
+ * A page/document reference returned by a connector's search. `id` is whatever
+ * the connector's `fetch` step needs to retrieve full text (a Notion page id
+ * or URL). The rest is presentation only.
+ */
+export interface ConnectorPageRef {
+  id: string;
+  title: string;
+  url: string;
+  /** ISO timestamp of the last edit, or "" when the source doesn't report it. */
+  last_edited: string;
+  /** Short match highlight/snippet from the connector's search, when available. */
+  snippet?: string;
+}
+
+/** Whether the current browser session has an authorized connection. */
+export interface ConnectorStatus {
+  connector: ConnectorId;
+  connected: boolean;
+  /** Human label for the connected account/workspace, when known. */
+  account?: string;
+}
+
+/**
+ * Provenance stamped onto a groundedness report when the trusted context was
+ * pulled from a connector rather than pasted. Lets the report (and its export)
+ * say "checked against <page> in Notion" and link back to the source.
+ */
+export interface ConnectorSource {
+  connector: ConnectorId;
+  page_id: string;
+  title: string;
+  url: string;
+}
+
+/** Response of `GET /api/connectors/notion/page?id=…`. */
+export interface ConnectorPageTextResponse {
+  id: string;
+  title: string;
+  url: string;
+  text: string;
+}
+
+// ---- Agentic workspace audit (MAJOR_CHANGES.md #C1) ----
+
+/**
+ * A document the user attached (or the orchestrator discovered) for a workspace
+ * audit turn. Carries only the lightweight reference — the full text is pulled
+ * server-side via the connector, never sent from the client.
+ */
+export interface WorkspaceAttachment {
+  connector: ConnectorId;
+  id: string;
+  title: string;
+}
+
+export interface WorkspaceRunRequestBody {
+  /** The user's natural-language instruction ("check my summary vs the transcript"). */
+  instruction: string;
+  /** Docs the user picked. May be empty — the orchestrator will then search. */
+  attachments: WorkspaceAttachment[];
+  /**
+   * Docs from the previous completed turn, so follow-ups ("now generate
+   * citations for those claims", "make a report") operate on the same document
+   * instead of re-searching. Empty on a fresh turn.
+   */
+  prior?: { connector: ConnectorId; id: string; title: string }[];
+}
+
+/**
+ * Which audit the orchestrator chose to run:
+ *   - "groundedness": faithfulness of one doc (the summary/draft) to the
+ *     others (trusted source). No web search.
+ *   - "factcheck": web fact-check of one doc's claims (full 3-agent audit).
+ *   - "citations": gather supporting AND contradicting web sources for each of
+ *     a doc's claims (evidence dossier — no verdict, both sides surfaced).
+ */
+export type WorkspaceMode = "groundedness" | "factcheck" | "citations";
+
+/** A single web source attached to a claim as for/against evidence. */
+export interface EvidenceCitation {
+  title: string;
+  url: string;
+  domain: string;
+  snippet: string;
+}
+
+export interface ClaimCitations {
+  claim: string;
+  /** One-line synthesis of where the evidence net lands. */
+  stance_summary: string;
+  supporting: EvidenceCitation[];
+  contradicting: EvidenceCitation[];
+}
+
+export interface CitationsReport {
+  doc_title: string;
+  claims: ClaimCitations[];
+}
+
+/** A doc the orchestrator actually used, and the role it played. */
+export interface WorkspaceUsedDoc {
+  connector: ConnectorId;
+  id: string;
+  title: string;
+  url: string;
+  role: "checked" | "source";
+}
+
+export interface WorkspaceRunResult {
+  mode: WorkspaceMode;
+  /** One-line, human explanation of what the orchestrator decided to do. */
+  note: string;
+  used: WorkspaceUsedDoc[];
+  /** Present when mode === "groundedness". */
+  groundedness?: GroundednessAudit;
+  /** Present when mode === "factcheck". */
+  audit?: DocumentAudit;
+  /** Present when mode === "citations". */
+  citations?: CitationsReport;
+}
+
+export type WorkspaceRunResponseBody = WorkspaceRunResult;
 
 // ---- Errors ----
 

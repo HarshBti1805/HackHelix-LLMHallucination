@@ -624,6 +624,7 @@ export default function Home() {
     { href: "/document", label: "Document" },
     { href: "/guardrail", label: "Guardrail" },
     { href: "/verify", label: "Verify" },
+    { href: "/workspace", label: "Workspace" },
     { href: "/benchmark", label: "Benchmark" },
   ];
 

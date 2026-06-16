@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# connector OAuth token store (encrypted, but never commit secrets)
+/.connector-data
+
 # vercel
 .vercel
 

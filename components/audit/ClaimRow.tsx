@@ -1,5 +1,6 @@
 import type { ClaimAudit, IndependentCheck } from "@/types";
 import { AgentSection } from "./AgentSection";
+import { useInterrogator } from "./InterrogatorDrawer";
 import { VERDICT_STYLES, formatConfidence } from "./verdict";
 
 const STANCE_COPY: Record<IndependentCheck["stance"], { label: string; color: string }> = {
@@ -45,6 +46,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 export function ClaimRow({ ca, isExpanded, onToggle, notLocatedNote }: ClaimRowProps) {
   const style = VERDICT_STYLES[ca.consensus_verdict];
+  const { open } = useInterrogator();
   return (
     <div style={{borderRadius:10,border:"1px solid var(--border)",background:"var(--bg-card)",overflow:"hidden",animation:"gt-claimin .2s ease both"}}>
       <button
@@ -122,6 +124,17 @@ export function ClaimRow({ ca, isExpanded, onToggle, notLocatedNote }: ClaimRowP
           {ca.independent_check && (
             <IndependentCheckSection check={ca.independent_check}/>
           )}
+
+          <button
+            type="button"
+            onClick={() => open(ca)}
+            style={{display:"inline-flex",alignItems:"center",alignSelf:"flex-start",gap:6,padding:"6px 11px",borderRadius:8,border:"1px solid color-mix(in srgb, var(--accent) 30%, transparent)",background:"color-mix(in srgb, var(--accent) 7%, transparent)",cursor:"pointer",color:"var(--accent-bright, var(--accent))",fontFamily:"'Geist Mono',monospace",fontSize:10.5,letterSpacing:"0.04em"}}
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+              <path d="M2.5 3.2h9v6h-5l-2.4 2v-2H2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+            </svg>
+            Ask the auditor
+          </button>
         </div>
       )}
     </div>

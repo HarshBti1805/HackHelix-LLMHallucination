@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { InterrogatorProvider } from "@/components/audit/InterrogatorDrawer";
 import "./globals.css";
 
 const geist = Geist({
@@ -40,7 +41,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <InterrogatorProvider>{children}</InterrogatorProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
