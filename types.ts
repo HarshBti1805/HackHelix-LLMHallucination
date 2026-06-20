@@ -657,6 +657,101 @@ export interface WorkspaceRunResult {
 
 export type WorkspaceRunResponseBody = WorkspaceRunResult;
 
+// ---- C: Close the loop — write audits back to Notion ----
+
+/**
+ * Write an audit report back to Notion as a child "audit report" page
+ * (POST /api/connectors/notion/writeback).
+ *
+ * `parent_page_id` is where the report is filed: when omitted, the route uses
+ * the audited Notion page (the "checked" doc) so the report lands right under
+ * the source. Requires a connected Notion session. This is the ONE connector
+ * operation that WRITES — every other connector op is read-only.
+ */
+export interface NotionWritebackRequestBody {
+  result: WorkspaceRunResult;
+  parent_page_id?: string;
+}
+
+export interface NotionWritebackResponseBody {
+  /** URL of the created Notion report page (may be "" if Notion didn't return one). */
+  url: string;
+  /** Notion page id of the created report (may be "" if not reported). */
+  id: string;
+  title: string;
+}
+
+// ---- C: Connector watches (scheduled / on-demand re-audits) ----
+
+/**
+ * A standing watch on a connector document. Groundtruth re-audits the page on
+ * demand (or on a schedule), and — when `writeback` is on and Notion is
+ * connected — files the report back as a Notion page automatically.
+ *
+ * DELIBERATE persistence (mirrors the token store's exception to CLAUDE.md rule
+ * 6): only WATCH METADATA is persisted (which page, its content hash for change
+ * detection, last-run timestamp, and verdict COUNTS) — never claim text or audit
+ * content. The durable audit artifact remains the exported/Notion report.
+ */
+export interface ConnectorWatch {
+  id: string;
+  connector: ConnectorId;
+  page_id: string;
+  title: string;
+  url: string;
+  /** Auto-file the report back to Notion after each changed re-audit. */
+  writeback: boolean;
+  last_run_at?: number;
+  /** Verdict COUNTS only (no claim text) from the last run, for the list UI. */
+  last_summary?: { total: number; flagged: number };
+  /** URL of the most recent Notion report written for this watch. */
+  last_report_url?: string;
+  created_at: number;
+}
+
+export interface AddWatchRequestBody {
+  connector: ConnectorId;
+  page_id: string;
+  title: string;
+  url?: string;
+  writeback?: boolean;
+}
+
+export interface UpdateWatchRequestBody {
+  writeback?: boolean;
+}
+
+export interface WatchListResponseBody {
+  watches: ConnectorWatch[];
+}
+
+/**
+ * Outcome of running a single watch.
+ *   - "audited":           page changed (or run was forced) → re-audited.
+ *   - "unchanged":         content hash matched the last run → skipped the audit.
+ *   - "writeback_skipped": audited, but Notion wasn't connected to file the report.
+ *   - "error":             the run failed (see `error`).
+ */
+export interface WatchRunOutcome {
+  watch_id: string;
+  status: "audited" | "unchanged" | "writeback_skipped" | "error";
+  summary?: { total: number; flagged: number };
+  report_url?: string;
+  note?: string;
+  error?: string;
+}
+
+export interface WatchRunRequestBody {
+  /** Run one watch by id, or omit to run all watches for the session. */
+  id?: string;
+  /** Re-audit even when the content hash is unchanged. */
+  force?: boolean;
+}
+
+export interface WatchRunResponseBody {
+  outcomes: WatchRunOutcome[];
+}
+
 // ---- Errors ----
 
 /**

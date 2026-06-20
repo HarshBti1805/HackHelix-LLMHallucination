@@ -296,6 +296,76 @@ export async function searchPages(
   });
 }
 
+/**
+ * Pull a created page's id + URL out of a create-pages tool result. Notion's
+ * MCP tools vary in exactly where they put this (structuredContent vs JSON
+ * text vs nested under `pages`/`results`), so we read defensively: stringify
+ * the whole payload and regex out the first Notion URL and id we see.
+ */
+function extractCreatedRef(result: ToolResultLike): { id: string; url: string } {
+  const parsed = parseToolJson(result);
+  const blob = `${JSON.stringify(parsed ?? "")}\n${collectText(result)}`;
+  const url =
+    blob.match(/https?:\/\/(?:www\.)?notion\.so\/[^\s"')\]]+/i)?.[0] ?? "";
+  const id =
+    blob.match(/"(?:id|page_id)"\s*:\s*"([0-9a-fA-F-]{16,})"/)?.[1] ??
+    url.match(/([0-9a-f]{32})(?:\?|$)/i)?.[1] ??
+    "";
+  return { id, url };
+}
+
+// Notion's create-pages tool accepts markdown content; cap it so we never send a
+// pathological payload (Notion also enforces its own block limits).
+const MAX_REPORT_CHARS = 100_000;
+
+/**
+ * C — close the loop: create a new Notion page holding an audit report.
+ *
+ * This is the ONE connector WRITE operation (everything else is read-only). It
+ * discovers Notion's create-pages MCP tool and files a markdown report, either
+ * under `parentId` (the audited page, so the report lands beside its source) or
+ * at the workspace root when no parent is given.
+ *
+ * Requires that the connected Notion authorization grants edit access. If the
+ * server exposes no create tool (read-only grant) we throw a clear, actionable
+ * error rather than failing silently.
+ */
+export async function createReportPage(
+  sid: string,
+  opts: { title: string; markdown: string; parentId?: string },
+): Promise<{ id: string; url: string }> {
+  return withClient(sid, async (client) => {
+    const tool = await resolveToolName(client, [
+      "create-pages",
+      "create_pages",
+      "create-page",
+      "create",
+    ]);
+    if (!tool) {
+      throw new Error(
+        "Notion MCP server exposes no create-pages tool. Reconnect Notion and " +
+          "grant edit access to enable writing reports back.",
+      );
+    }
+
+    const content = opts.markdown.slice(0, MAX_REPORT_CHARS);
+    const result = (await client.callTool({
+      name: tool,
+      arguments: {
+        pages: [{ properties: { title: opts.title }, content }],
+        ...(opts.parentId ? { parent: { page_id: opts.parentId } } : {}),
+      },
+    })) as ToolResultLike;
+
+    if (result.isError) {
+      throw new Error(
+        collectText(result) || "Notion create-pages returned an error.",
+      );
+    }
+    return extractCreatedRef(result);
+  });
+}
+
 /** Fetch a single page's text to use as trusted context. */
 export async function fetchPageText(
   sid: string,

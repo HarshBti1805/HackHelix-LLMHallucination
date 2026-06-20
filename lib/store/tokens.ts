@@ -85,11 +85,34 @@ interface ConnectorRecord {
   tokens?: ConnectorTokens;
 }
 
+/**
+ * A persisted connector watch (C — automation). Metadata ONLY: which page, its
+ * content hash for change detection, last-run timestamp, and verdict COUNTS.
+ * Never claim text or audit content — the durable audit artifact is the
+ * exported/Notion report, exactly as the token-store exception intends.
+ */
+export interface WatchRecord {
+  id: string;
+  connector: ConnectorId;
+  page_id: string;
+  title: string;
+  url: string;
+  writeback: boolean;
+  /** sha256 of the last-audited page text — used to skip unchanged pages. */
+  last_hash?: string;
+  last_run_at?: number;
+  last_summary?: { total: number; flagged: number };
+  last_report_url?: string;
+  created_at: number;
+}
+
 interface StoreShape {
   /** Dynamic client registrations, keyed by MCP server URL. */
   clients: Record<string, OAuthClientCreds>;
   /** Per-session connector records. */
   sessions: Record<string, Partial<Record<ConnectorId, ConnectorRecord>>>;
+  /** Per-session connector watches (C — automation). Metadata only. */
+  watches?: Record<string, WatchRecord[]>;
 }
 
 // ── encrypted load/save (whole-file; the store is small) ─────────────────────
@@ -97,7 +120,7 @@ interface StoreShape {
 let _cache: StoreShape | null = null;
 
 function emptyStore(): StoreShape {
-  return { clients: {}, sessions: {} };
+  return { clients: {}, sessions: {}, watches: {} };
 }
 
 function load(): StoreShape {
@@ -222,6 +245,49 @@ export function clearTokens(sid: string, connector: ConnectorId): void {
   const rec = load().sessions[sid]?.[connector];
   if (rec) {
     delete rec.tokens;
+    persist();
+  }
+}
+
+// ── watches (C — automation; metadata only) ──────────────────────────────────
+
+export function listWatchRecords(sid: string): WatchRecord[] {
+  return load().watches?.[sid] ?? [];
+}
+
+export function getWatchRecord(sid: string, id: string): WatchRecord | null {
+  return listWatchRecords(sid).find((w) => w.id === id) ?? null;
+}
+
+export function addWatchRecord(sid: string, rec: WatchRecord): void {
+  const store = load();
+  const all = (store.watches ??= {});
+  (all[sid] ??= []).push(rec);
+  persist();
+}
+
+export function updateWatchRecord(
+  sid: string,
+  id: string,
+  patch: Partial<Omit<WatchRecord, "id">>,
+): WatchRecord | null {
+  const store = load();
+  const list = store.watches?.[sid];
+  if (!list) return null;
+  const rec = list.find((w) => w.id === id);
+  if (!rec) return null;
+  Object.assign(rec, patch);
+  persist();
+  return rec;
+}
+
+export function removeWatchRecord(sid: string, id: string): void {
+  const store = load();
+  const list = store.watches?.[sid];
+  if (!list) return;
+  const next = list.filter((w) => w.id !== id);
+  if (next.length !== list.length) {
+    store.watches![sid] = next;
     persist();
   }
 }

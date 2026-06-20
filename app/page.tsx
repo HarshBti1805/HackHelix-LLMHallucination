@@ -33,6 +33,26 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   anthropic: "Anthropic",
 };
 
+const PROVIDER_COLOR: Record<Provider, string> = {
+  openai: "#10a37f",
+  gemini: "#4285f4",
+  anthropic: "#d4915d",
+};
+
+const PROVIDER_BRAND: Record<Provider, { color: string; mono: string }> = {
+  openai: { color: PROVIDER_COLOR.openai, mono: "AI" },
+  gemini: { color: PROVIDER_COLOR.gemini, mono: "GM" },
+  anthropic: { color: PROVIDER_COLOR.anthropic, mono: "AN" },
+};
+
+interface ModelMeta { label: string }
+const MODEL_META: Record<ChatModel, ModelMeta> = {
+  "gpt-4o": { label: "GPT-4o" },
+  "gpt-4o-mini": { label: "GPT-4o mini" },
+  "gemini-2.5-flash": { label: "Gemini 2.5 Flash" },
+  "claude-haiku-4-5": { label: "Claude Haiku 4.5" },
+};
+
 interface DemoPrompt { label: string; prompt: string; color: string; tag: string }
 const DEMO_PROMPTS: DemoPrompt[] = [
   {
@@ -704,33 +724,50 @@ export default function Home() {
         <div style={{position:"relative"}}>
           <button
             onClick={() => setProviderDropdownOpen((v) => !v)}
-            style={{display:"flex",alignItems:"center",gap:8,height:32,padding:"0 11px",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",color:"var(--text-primary)"}}
+            aria-haspopup="listbox"
+            aria-expanded={providerDropdownOpen}
+            style={{display:"flex",alignItems:"center",gap:9,height:34,padding:"0 11px",background:"var(--bg-card)",border:`1px solid ${providerDropdownOpen ? "var(--border-strong)" : "var(--border)"}`,borderRadius:9,cursor:"pointer",color:"var(--text-primary)",transition:"border-color .15s, box-shadow .15s",boxShadow:providerDropdownOpen ? "0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)" : "none"}}
           >
-            <span style={{width:7,height:7,borderRadius:"50%",background:"var(--v-verified)",boxShadow:"0 0 6px var(--v-verified)",display:"inline-block"}}/>
-            <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11.5,letterSpacing:"0.02em"}}>{PROVIDER_LABEL[provider]}</span>
-            <span style={{color:"var(--text-faint)",fontSize:10}}>/</span>
-            <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11.5,color:"var(--text-secondary)"}}>{model}</span>
-            <svg width="10" height="10" viewBox="0 0 10 10" style={{opacity:.5}}><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" strokeWidth="1.3" fill="none"/></svg>
+            <span style={{width:7,height:7,flexShrink:0,borderRadius:"50%",background:PROVIDER_COLOR[provider]}}/>
+            <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11.5,letterSpacing:"-0.01em"}}>{MODEL_META[model].label}</span>
+            <span style={{fontSize:9.5,color:"var(--text-faint)",letterSpacing:"0.01em"}}>{PROVIDER_LABEL[provider]}</span>
+            <svg width="10" height="10" viewBox="0 0 10 10" style={{opacity:.4,marginLeft:1,transition:"transform .18s",transform:providerDropdownOpen ? "rotate(180deg)" : "none"}}><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
           {providerDropdownOpen && (
             <>
               <div onClick={() => setProviderDropdownOpen(false)} style={{position:"fixed",inset:0,zIndex:55}}/>
-              <div style={{position:"absolute",top:40,right:0,zIndex:60,width:200,padding:6,background:"var(--bg-elev)",border:"1px solid var(--border-strong)",borderRadius:12,boxShadow:"var(--shadow-pop)",animation:"gt-claimin .16s ease both"}}>
-                {(Object.entries(PROVIDER_MODELS) as [Provider, ChatModel[]][]).flatMap(([p, models]) =>
-                  models.map((m) => (
-                    <button
-                      key={`${p}-${m}`}
-                      onClick={() => { setProvider(p); setModel(m); setProviderDropdownOpen(false); }}
-                      style={{display:"flex",alignItems:"center",gap:10,width:"100%",height:31,padding:"0 9px",borderRadius:7,border:"none",cursor:"pointer",background:provider === p && model === m ? "var(--bg-card)" : "transparent",color:"var(--text-primary)",textAlign:"left"}}
-                    >
-                      <span style={{fontFamily:"'Geist Mono',monospace",fontSize:11.5,flex:1}}>{PROVIDER_LABEL[p]}</span>
-                      <span style={{fontFamily:"'Geist Mono',monospace",fontSize:10.5,color:"var(--text-secondary)"}}>{m}</span>
-                      {provider === p && model === m && (
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 5 9 9.5 3.5" stroke="var(--accent)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      )}
-                    </button>
-                  ))
-                )}
+              <div role="listbox" style={{position:"absolute",top:42,right:0,zIndex:60,width:262,padding:5,background:"var(--bg-elev)",border:"1px solid var(--border-strong)",borderRadius:13,boxShadow:"var(--shadow-pop)",animation:"gt-claimin .16s ease both"}}>
+                <div style={{padding:"7px 10px 7px",fontSize:9,letterSpacing:"0.11em",textTransform:"uppercase",color:"var(--text-faint)",fontWeight:700}}>Chat model</div>
+                {(Object.entries(PROVIDER_MODELS) as [Provider, ChatModel[]][]).map(([p, models], gi) => (
+                  <div key={p} style={{marginTop:gi === 0 ? 0 : 4,paddingTop:gi === 0 ? 0 : 5,borderTop:gi === 0 ? "none" : "1px solid var(--border)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,padding:"3px 10px 5px"}}>
+                      <span style={{width:6,height:6,borderRadius:"50%",background:PROVIDER_COLOR[p]}}/>
+                      <span style={{fontSize:10,color:"var(--text-muted)",fontWeight:600,letterSpacing:"0.02em"}}>{PROVIDER_LABEL[p]}</span>
+                    </div>
+                    {models.map((m) => {
+                      const active = provider === p && model === m;
+                      const meta = MODEL_META[m];
+                      return (
+                        <button
+                          key={`${p}-${m}`}
+                          role="option"
+                          aria-selected={active}
+                          onClick={() => { setProvider(p); setModel(m); setProviderDropdownOpen(false); }}
+                          onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--bg-card)"; }}
+                          onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                          style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"7px 10px",borderRadius:9,border:"none",cursor:"pointer",background:active ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent",color:"var(--text-primary)",textAlign:"left",transition:"background .12s"}}
+                        >
+                          <span style={{fontFamily:"'Geist Mono',monospace",fontSize:12,fontWeight:active ? 600 : 500,letterSpacing:"-0.01em",flex:1,minWidth:0}}>{meta.label}</span>
+                          <span style={{width:16,height:16,flexShrink:0,display:"grid",placeItems:"center"}}>
+                            {active && (
+                              <svg width="13" height="13" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 5 9 9.5 3.5" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </>
           )}

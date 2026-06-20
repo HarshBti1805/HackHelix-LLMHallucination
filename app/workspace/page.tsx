@@ -10,12 +10,17 @@ import type {
   ConnectorId,
   ConnectorPageRef,
   ConnectorStatus,
+  ConnectorWatch,
   GroundedClaim,
   GroundednessAudit,
   GroundingVerdict,
+  NotionWritebackResponseBody,
+  WatchListResponseBody,
+  WatchRunResponseBody,
   WorkspaceAttachment,
   WorkspaceRunRequestBody,
   WorkspaceRunResult,
+  WorkspaceUsedDoc,
 } from "@/types";
 
 /* ── types ─────────────────────────────────────────────────────────── */
@@ -44,7 +49,7 @@ const CONNECTOR_DESC: Record<ConnectorId, string> = {
   notion: "Audit pages, specs & wikis",
   google: "Docs, sheets & slides",
   gmail: "Threads & attachments",
-  slack: "Set SLACK_BOT_TOKEN to enable",
+  slack: "Messages & threads",
 };
 
 const GVERDICT: Record<GroundingVerdict, { label: string; color: string }> = {
@@ -82,6 +87,9 @@ export default function WorkspacePage() {
   const [pickerQuery, setPickerQuery] = useState("");
   const [pickerResults, setPickerResults] = useState<ConnectorPageRef[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [watches, setWatches] = useState<ConnectorWatch[]>([]);
+  const [watchesOpen, setWatchesOpen] = useState(false);
+  const [watchBusy, setWatchBusy] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -100,15 +108,26 @@ export default function WorkspacePage() {
     setStatuses(next);
   }, []);
 
+  const refreshWatches = useCallback(async () => {
+    try {
+      const res = await fetch("/api/connectors/watch");
+      const data = (await res.json()) as WatchListResponseBody;
+      setWatches(data.watches ?? []);
+    } catch {
+      /* non-fatal — leave the list as-is */
+    }
+  }, []);
+
   useEffect(() => {
     refreshStatus();
+    refreshWatches();
     const params = new URLSearchParams(window.location.search);
     const c = params.get("connected");
     if (c) setBanner({ kind: "ok", msg: `${CONNECTOR_LABEL[c as ConnectorId] ?? c} connected.` });
     const e = params.get("error");
     if (e) setBanner({ kind: "err", msg: e });
     if (c || e) window.history.replaceState({}, "", window.location.pathname);
-  }, [refreshStatus]);
+  }, [refreshStatus, refreshWatches]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
@@ -175,6 +194,99 @@ export default function WorkspacePage() {
     setAttached((prev) => prev.filter((a) => a.id !== id));
   }
 
+  /* ── C: writeback + watches ──────────────────────────────────────── */
+  async function sendToNotion(result: WorkspaceRunResult): Promise<boolean> {
+    try {
+      const res = await fetch("/api/connectors/notion/writeback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ result }),
+      });
+      const data = (await res.json()) as NotionWritebackResponseBody & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `writeback failed (${res.status})`);
+      setBanner({
+        kind: "ok",
+        msg: data.url ? `Report written to Notion → ${data.url}` : "Report written to Notion.",
+      });
+      return true;
+    } catch (err) {
+      setBanner({ kind: "err", msg: err instanceof Error ? err.message : "Writeback failed." });
+      return false;
+    }
+  }
+
+  async function addWatch(doc: WorkspaceUsedDoc): Promise<boolean> {
+    try {
+      const res = await fetch("/api/connectors/watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connector: doc.connector,
+          page_id: doc.id,
+          title: doc.title,
+          url: doc.url,
+          writeback: statuses.notion.connected,
+        }),
+      });
+      const data = (await res.json()) as { watch?: ConnectorWatch; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `could not watch (${res.status})`);
+      await refreshWatches();
+      setBanner({ kind: "ok", msg: `Watching “${doc.title}” for changes.` });
+      return true;
+    } catch (err) {
+      setBanner({ kind: "err", msg: err instanceof Error ? err.message : "Could not add watch." });
+      return false;
+    }
+  }
+
+  async function runWatches(id?: string) {
+    setWatchBusy(id ?? "all");
+    try {
+      const res = await fetch("/api/connectors/watch/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(id ? { id } : {}),
+      });
+      const data = (await res.json()) as WatchRunResponseBody & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `run failed (${res.status})`);
+      await refreshWatches();
+      const audited = data.outcomes.filter((o) => o.status === "audited").length;
+      const unchanged = data.outcomes.filter((o) => o.status === "unchanged").length;
+      const errored = data.outcomes.filter((o) => o.status === "error").length;
+      const flagged = data.outcomes.reduce((n, o) => n + (o.summary?.flagged ?? 0), 0);
+      setBanner({
+        kind: errored > 0 ? "err" : "ok",
+        msg: `Re-audited ${audited} · unchanged ${unchanged}${errored ? ` · failed ${errored}` : ""}${flagged ? ` · ${flagged} flagged` : ""}.`,
+      });
+    } catch (err) {
+      setBanner({ kind: "err", msg: err instanceof Error ? err.message : "Run failed." });
+    } finally {
+      setWatchBusy(null);
+    }
+  }
+
+  async function toggleWriteback(id: string, writeback: boolean) {
+    try {
+      await fetch(`/api/connectors/watch/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ writeback }),
+      });
+      await refreshWatches();
+    } catch {
+      setBanner({ kind: "err", msg: "Could not update watch." });
+    }
+  }
+
+  async function removeWatch(id: string) {
+    try {
+      await fetch(`/api/connectors/watch/${id}`, { method: "DELETE" });
+      await refreshWatches();
+    } catch {
+      setBanner({ kind: "err", msg: "Could not remove watch." });
+    }
+  }
+
   async function send() {
     if (!connected) return;
     const text = instruction.trim();
@@ -230,6 +342,20 @@ export default function WorkspacePage() {
         </Link>
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => setWatchesOpen(true)}
+            title="Scheduled re-audits"
+            style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 28, padding: "0 10px", borderRadius: 8, border: "1px solid var(--border-strong)", background: watches.length ? "var(--accent-dim)" : "transparent", color: watches.length ? "var(--accent-bright)" : "var(--text-secondary)", cursor: "pointer", fontSize: 12 }}
+          >
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="5.3" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M7 4.2V7l1.9 1.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Watches
+            {watches.length > 0 && (
+              <span style={{ display: "inline-grid", placeItems: "center", minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: "var(--accent)", color: "#fff", fontFamily: "'Geist Mono', monospace", fontSize: 9.5, fontWeight: 600 }}>{watches.length}</span>
+            )}
+          </button>
           {CONNECTOR_IDS.map((id) => (
             <ConnectorBadge key={id} id={id} status={statuses[id]} onDisconnect={() => disconnect(id)} />
           ))}
@@ -255,10 +381,30 @@ export default function WorkspacePage() {
         <div style={{ maxWidth: 780, margin: "0 auto", display: "flex", flexDirection: "column", gap: 18 }}>
           {turns.length === 0 && <EmptyState statuses={statuses} connected={connected} />}
           {turns.map((t) => (
-            <TurnView key={t.id} turn={t} onFollowUp={setInstruction} />
+            <TurnView
+              key={t.id}
+              turn={t}
+              onFollowUp={setInstruction}
+              notionConnected={statuses.notion.connected}
+              watchedIds={watches.map((w) => w.page_id)}
+              onSendToNotion={sendToNotion}
+              onWatch={addWatch}
+            />
           ))}
         </div>
       </div>
+
+      {watchesOpen && (
+        <WatchesPanel
+          watches={watches}
+          busy={watchBusy}
+          notionConnected={statuses.notion.connected}
+          onRun={runWatches}
+          onToggleWriteback={toggleWriteback}
+          onRemove={removeWatch}
+          onClose={() => setWatchesOpen(false)}
+        />
+      )}
 
       {/* ── composer ── */}
       <div style={{ position: "relative", zIndex: 2, flexShrink: 0, padding: "14px 18px 18px", background: "color-mix(in srgb, var(--bg-base) 70%, transparent)", backdropFilter: "blur(10px)", borderTop: "1px solid var(--border)" }}>
@@ -404,7 +550,14 @@ function EmptyState({ statuses, connected }: { statuses: Record<ConnectorId, Con
 }
 
 /* ── turn ───────────────────────────────────────────────────────────── */
-function TurnView({ turn, onFollowUp }: { turn: Turn; onFollowUp: (text: string) => void }) {
+function TurnView({ turn, onFollowUp, notionConnected, watchedIds, onSendToNotion, onWatch }: {
+  turn: Turn;
+  onFollowUp: (text: string) => void;
+  notionConnected: boolean;
+  watchedIds: string[];
+  onSendToNotion: (result: WorkspaceRunResult) => Promise<boolean>;
+  onWatch: (doc: WorkspaceUsedDoc) => Promise<boolean>;
+}) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* user bubble */}
@@ -439,7 +592,14 @@ function TurnView({ turn, onFollowUp }: { turn: Turn; onFollowUp: (text: string)
         </div>
       )}
       {turn.status === "done" && turn.result && (
-        <ResultCard result={turn.result} onFollowUp={onFollowUp} />
+        <ResultCard
+          result={turn.result}
+          onFollowUp={onFollowUp}
+          notionConnected={notionConnected}
+          watchedIds={watchedIds}
+          onSendToNotion={onSendToNotion}
+          onWatch={onWatch}
+        />
       )}
     </div>
   );
@@ -458,7 +618,31 @@ function PendingTurn() {
 }
 
 /* ── result card ────────────────────────────────────────────────────── */
-function ResultCard({ result, onFollowUp }: { result: WorkspaceRunResult; onFollowUp: (text: string) => void }) {
+function ResultCard({ result, onFollowUp, notionConnected, watchedIds, onSendToNotion, onWatch }: {
+  result: WorkspaceRunResult;
+  onFollowUp: (text: string) => void;
+  notionConnected: boolean;
+  watchedIds: string[];
+  onSendToNotion: (result: WorkspaceRunResult) => Promise<boolean>;
+  onWatch: (doc: WorkspaceUsedDoc) => Promise<boolean>;
+}) {
+  const [sending, setSending] = useState(false);
+  const [watching, setWatching] = useState(false);
+  const checked = result.used.find((u) => u.role === "checked") ?? result.used[0];
+  const isWatched = !!checked && watchedIds.includes(checked.id);
+
+  async function handleSend() {
+    setSending(true);
+    await onSendToNotion(result);
+    setSending(false);
+  }
+  async function handleWatch() {
+    if (!checked) return;
+    setWatching(true);
+    await onWatch(checked);
+    setWatching(false);
+  }
+
   function save(blob: Blob, name: string) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = name; a.click();
@@ -503,7 +687,28 @@ function ResultCard({ result, onFollowUp }: { result: WorkspaceRunResult; onFoll
           <span style={{ fontFamily: "'Geist Mono', monospace", fontSize: 10.5, letterSpacing: "0.04em", color: "var(--accent-bright)" }}>{MODE_LABEL[result.mode]}</span>
         </span>
         <span style={{ fontSize: 12, color: "var(--text-secondary)", flex: 1, minWidth: 160 }}>{result.note}</span>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {notionConnected && (
+            <button
+              onClick={handleSend}
+              disabled={sending}
+              title="Write this report back to Notion"
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 27, padding: "0 11px", borderRadius: 7, border: "1px solid color-mix(in srgb, var(--accent) 45%, transparent)", background: "var(--accent-dim)", color: "var(--accent-bright)", cursor: sending ? "default" : "pointer", fontSize: 11.5, opacity: sending ? 0.6 : 1 }}
+            >
+              <NotionGlyph size={12} />
+              {sending ? "Writing…" : "Send to Notion"}
+            </button>
+          )}
+          {checked && (
+            <button
+              onClick={handleWatch}
+              disabled={watching || isWatched}
+              title={isWatched ? "Already watching this doc" : "Re-audit this doc on demand"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 27, padding: "0 11px", borderRadius: 7, border: "1px solid var(--border)", background: "transparent", color: isWatched ? "var(--v-verified)" : "var(--text-secondary)", cursor: watching || isWatched ? "default" : "pointer", fontSize: 11.5 }}
+            >
+              {isWatched ? "Watching ✓" : watching ? "…" : "Watch"}
+            </button>
+          )}
           <GhostBtn onClick={() => download("md")}>Report</GhostBtn>
           <GhostBtn onClick={() => download("json")}>JSON</GhostBtn>
           <GhostBtn onClick={() => download("csv")}>CSV</GhostBtn>
@@ -670,6 +875,109 @@ function CiteColumn({ label, color, cites }: { label: string; color: string; cit
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── watches panel (C — automation) ─────────────────────────────────── */
+function fmtAgo(ts?: number): string {
+  if (!ts) return "never run";
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function WatchesPanel({ watches, busy, notionConnected, onRun, onToggleWriteback, onRemove, onClose }: {
+  watches: ConnectorWatch[];
+  busy: string | null;
+  notionConnected: boolean;
+  onRun: (id?: string) => void;
+  onToggleWriteback: (id: string, writeback: boolean) => void;
+  onRemove: (id: string) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div onMouseDown={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "color-mix(in srgb, #000 45%, transparent)", display: "flex", justifyContent: "flex-end" }}>
+      <div onMouseDown={(e) => e.stopPropagation()} style={{ width: "min(440px, 92vw)", height: "100%", background: "var(--bg-elev)", borderLeft: "1px solid var(--border-strong)", boxShadow: "var(--shadow-pop)", display: "flex", flexDirection: "column" }}>
+        {/* header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "15px 17px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--text-primary)" }}>Watches</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 1 }}>Re-audit docs on demand · auto-file reports to Notion</div>
+          </div>
+          {watches.length > 0 && (
+            <button onClick={() => onRun()} disabled={busy === "all"} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 30, padding: "0 13px", borderRadius: 8, border: "none", background: "var(--accent)", color: "#fff", cursor: busy === "all" ? "default" : "pointer", fontSize: 12.5, fontWeight: 600, opacity: busy === "all" ? 0.6 : 1 }}>
+              {busy === "all" ? "Running…" : "Run all"}
+            </button>
+          )}
+          <button onClick={onClose} style={{ display: "grid", placeItems: "center", width: 28, height: 28, borderRadius: 7, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", color: "var(--text-muted)" }}>
+            <svg width="11" height="11" viewBox="0 0 10 10"><path d="M2 2 8 8 M8 2 2 8" stroke="currentColor" strokeWidth="1.5" /></svg>
+          </button>
+        </div>
+
+        {!notionConnected && watches.some((w) => w.writeback) && (
+          <div style={{ margin: "12px 17px 0", padding: "9px 12px", borderRadius: 9, border: "1px solid color-mix(in srgb, var(--v-unverified) 40%, transparent)", background: "color-mix(in srgb, var(--v-unverified) 10%, transparent)", fontSize: 11.5, color: "var(--text-secondary)" }}>
+            Connect Notion to let watches with writeback file their reports automatically.
+          </div>
+        )}
+
+        {/* list */}
+        <div className="wa-scroll" style={{ flex: 1, overflowY: "auto", padding: "13px 17px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {watches.length === 0 ? (
+            <div style={{ padding: "40px 10px", textAlign: "center", color: "var(--text-muted)" }}>
+              <div style={{ fontSize: 13, lineHeight: 1.6 }}>No watches yet.</div>
+              <div style={{ fontSize: 12, lineHeight: 1.6, marginTop: 6 }}>Run an audit, then press <b style={{ color: "var(--text-secondary)" }}>Watch</b> on the result to re-audit that doc whenever it changes.</div>
+            </div>
+          ) : (
+            watches.map((w) => {
+              const running = busy === w.id || busy === "all";
+              return (
+                <div key={w.id} style={{ border: "1px solid var(--border)", borderRadius: 11, background: "var(--bg-card)", padding: "12px 13px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                    <span style={{ marginTop: 1 }}><ConnectorGlyph id={w.connector} size={14} /></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {w.url
+                        ? <a href={w.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", textDecoration: "none", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.title}</a>
+                        : <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.title}</div>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, fontFamily: "'Geist Mono', monospace", fontSize: 10, color: "var(--text-faint)" }}>
+                        <span>{fmtAgo(w.last_run_at)}</span>
+                        {w.last_summary && (
+                          <span style={{ color: w.last_summary.flagged > 0 ? "var(--v-hallucination)" : "var(--v-verified)" }}>
+                            {w.last_summary.flagged > 0 ? `${w.last_summary.flagged}/${w.last_summary.total} flagged` : `${w.last_summary.total} clean`}
+                          </span>
+                        )}
+                        {w.last_report_url && (
+                          <a href={w.last_report_url} target="_blank" rel="noreferrer" style={{ color: "var(--accent-bright)", textDecoration: "none" }}>report ↗</a>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => onRemove(w.id)} title="Remove watch" style={{ display: "grid", placeItems: "center", width: 22, height: 22, borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", color: "var(--text-muted)", flexShrink: 0 }}>
+                      <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2 8 8 M8 2 2 8" stroke="currentColor" strokeWidth="1.4" /></svg>
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 11 }}>
+                    <button onClick={() => onRun(w.id)} disabled={running} style={{ height: 28, padding: "0 12px", borderRadius: 7, border: "1px solid var(--border-strong)", background: "transparent", color: "var(--text-primary)", cursor: running ? "default" : "pointer", fontSize: 12, opacity: running ? 0.55 : 1 }}>
+                      {running ? "Running…" : "Run now"}
+                    </button>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "var(--text-secondary)", cursor: "pointer", marginLeft: "auto" }}>
+                      <input type="checkbox" checked={w.writeback} onChange={(e) => onToggleWriteback(w.id, e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+                      Write report to Notion
+                    </label>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }
