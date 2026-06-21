@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type {
   AuditRequestBody,
@@ -85,6 +86,87 @@ function formatTime(ts: number): string {
   try {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   } catch { return ""; }
+}
+
+// Header nav with a spring-loaded highlight pill that tracks the hovered tab
+// (falling back to the active route) and brightens the focused label.
+function NavTabs({ items }: { items: { href: string; label: string }[] }) {
+  const pathname = usePathname();
+  const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const [pill, setPill] = useState<{ left: number; width: number; visible: boolean; active: boolean }>(
+    { left: 0, width: 0, visible: false, active: false }
+  );
+
+  const activeIndex = items.findIndex(
+    (n) => pathname === n.href || pathname.startsWith(n.href + "/")
+  );
+
+  useEffect(() => {
+    const idx = hovered != null ? hovered : activeIndex;
+    const el = idx >= 0 ? itemRefs.current[idx] : null;
+    if (el) {
+      setPill({ left: el.offsetLeft, width: el.offsetWidth, visible: true, active: hovered == null });
+    } else {
+      setPill((p) => ({ ...p, visible: false }));
+    }
+  }, [hovered, activeIndex, items.length]);
+
+  return (
+    <nav
+      onMouseLeave={() => setHovered(null)}
+      style={{ position: "relative", display: "flex", alignItems: "center", gap: 2, marginLeft: 6 }}
+    >
+      <span
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: pill.left,
+          width: pill.width,
+          height: 30,
+          transform: `translateY(-50%) scale(${pill.visible ? 1 : 0.9})`,
+          borderRadius: 9,
+          background: pill.active
+            ? "color-mix(in srgb, var(--accent) 14%, transparent)"
+            : "var(--bg-card)",
+          border: `1px solid ${pill.active ? "color-mix(in srgb, var(--accent) 38%, transparent)" : "var(--border)"}`,
+          opacity: pill.visible ? 1 : 0,
+          transition:
+            "left .3s cubic-bezier(.34,1.32,.4,1), width .3s cubic-bezier(.34,1.32,.4,1), opacity .18s ease, transform .18s ease, background .2s ease, border-color .2s ease",
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
+      {items.map((n, i) => {
+        const isActive = i === activeIndex;
+        const isFocused = hovered === i || (hovered == null && isActive);
+        return (
+          <Link
+            key={n.href}
+            href={n.href}
+            ref={(el) => { itemRefs.current[i] = el; }}
+            onMouseEnter={() => setHovered(i)}
+            style={{
+              position: "relative",
+              zIndex: 1,
+              fontSize: 12.5,
+              fontWeight: isActive ? 600 : 500,
+              color: isFocused ? "var(--text-primary)" : "var(--text-secondary)",
+              padding: "6px 12px",
+              borderRadius: 9,
+              textDecoration: "none",
+              fontFamily: "'Geist',sans-serif",
+              whiteSpace: "nowrap",
+              transition: "color .18s ease",
+            }}
+          >
+            {n.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
 }
 
 function makeUserMessage(content: string): ChatMessage {
@@ -706,17 +788,7 @@ export default function Home() {
         </div>
 
         {/* nav */}
-        <nav style={{display:"flex",alignItems:"center",gap:4,marginLeft:6}}>
-          {NAV_ITEMS.map((n) => (
-            <Link
-              key={n.href}
-              href={n.href}
-              style={{fontSize:12.5,color:"var(--text-secondary)",padding:"6px 11px",borderRadius:7,background:"transparent",border:"none",cursor:"pointer",fontFamily:"'Geist',sans-serif",textDecoration:"none",transition:"color .15s"}}
-            >
-              {n.label}
-            </Link>
-          ))}
-        </nav>
+        <NavTabs items={NAV_ITEMS} />
 
         <div style={{flex:1}}/>
 
